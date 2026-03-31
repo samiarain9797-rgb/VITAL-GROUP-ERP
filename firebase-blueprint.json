@@ -1,0 +1,225 @@
+{
+  "entities": {
+    "Shipment": {
+      "title": "Shipment",
+      "description": "A comprehensive shipment record tracking the entire lifecycle from vessel to destination and return load.",
+      "type": "object",
+      "properties": {
+        "trackingId": { "type": "string", "description": "Unique tracking ID" },
+        "status": { "type": "string", "description": "Overall status of the shipment" },
+        
+        "vesselName": { "type": "string" },
+        "vesselArrivalDetails": { "type": "string" },
+        "containerNumber": { "type": "string" },
+        "containerSizeAndType": { "type": "string" },
+        "grossWeight": { "type": "string" },
+        "numberOfPackages": { "type": "integer" },
+        "commodityDescription": { "type": "string" },
+        "dutyPayDate": { "type": "string" },
+        "clearanceDate": { "type": "string" },
+        "customsClearanceStatus": { "type": "string" },
+        "portGateInTime": { "type": "string" },
+        "portGateOutTime": { "type": "string" },
+        "gatePassPickupDetails": { "type": "string" },
+        "liftDetails": { "type": "string" },
+        "emptyReturnDetails": { "type": "string" },
+        "clearingAgentId": { "type": "string" },
+
+        "transporterId": { "type": "string" },
+        "eirsHardcopyUrl": { "type": "string" },
+        "eirsSoftcopyUrl": { "type": "string" },
+        "logisticsTeamNotes": { "type": "string" },
+
+        "vehicleDetails": { "type": "string" },
+        "driverDetails": { "type": "string" },
+        "estimatedLiftingTime": { "type": "string" },
+        "estimatedArrivalTime": { "type": "string" },
+        "actualLiftingTime": { "type": "string" },
+        "actualArrivalTime": { "type": "string" },
+        "manualTrackingInfo": { "type": "string" },
+        "liveTrackingUrl": { "type": "string" },
+
+        "receivingDocUrl": { "type": "string" },
+        "receivingTime": { "type": "string" },
+        "factoryGateInTime": { "type": "string" },
+        "unloadingTime": { "type": "string" },
+        "unloadingLocation": { "type": "string" },
+        "unloadingArrivalDate": { "type": "string" },
+        "unloadingDate": { "type": "string" },
+        "unloadingGateOutDate": { "type": "string" },
+        "factoryGateOutTime": { "type": "string" },
+        "receiverId": { "type": "string" },
+
+        "returnStationName": { "type": "string" },
+        "returnWarehouseDetails": { "type": "string" },
+        "returnMaterialsDetails": { "type": "string" },
+        "hasReturnLoad": { "type": "boolean" },
+        "transportCost": { "type": "number", "description": "Cost of transportation" },
+        "clearingCost": { "type": "number", "description": "Cost of clearing" },
+        "otherCosts": { "type": "number", "description": "Miscellaneous costs" },
+        "totalCost": { "type": "number", "description": "Total calculated cost" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trackingId", "updatedAt"]
+    },
+    "Vessel": {
+      "title": "Vessel Plan",
+      "description": "A planned vessel arrival and container tracking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "expectedDate": { "type": "string" },
+        "totalContainers": { "type": "integer" },
+        "status": { "type": "string", "enum": ["Expected", "Arrived", "Discharged"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "expectedDate", "totalContainers", "status"]
+    },
+    "FleetVehicle": {
+      "title": "Fleet Vehicle",
+      "description": "A vehicle in the logistics fleet.",
+      "type": "object",
+      "properties": {
+        "vehicleId": { "type": "string", "description": "Unique vehicle ID" },
+        "type": { "type": "string", "description": "Vehicle type (e.g., Truck, Van, Container)" },
+        "status": { "type": "string", "enum": ["Active", "Maintenance", "Idle"], "description": "Current vehicle status" },
+        "currentDriverId": { "type": "string", "description": "ID of the current driver" },
+        "lastMaintenance": { "type": "string", "format": "date-time", "description": "Last maintenance date" }
+      },
+      "required": ["vehicleId", "type", "status"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with role-based access control.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email", "description": "User email" },
+        "username": { "type": "string", "description": "Temporary User ID (if applicable)" },
+        "isTemporary": { "type": "boolean", "description": "Whether this is a temporary ID-based user" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "role": { "type": "string", "enum": ["admin", "transporter", "clearing_agent", "receiver", "warehouse_manager"], "description": "User role" },
+        "permissions": { "type": "array", "items": { "type": "string" }, "description": "Specific granular permissions" },
+        "photoURL": { "type": "string", "description": "User avatar URL" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Vessel": {
+      "title": "Vessel Details",
+      "description": "Details about the vessel and its arrival.",
+      "type": "object",
+      "properties": {
+        "vesselId": { "type": "string", "description": "Unique vessel ID" },
+        "name": { "type": "string", "description": "Vessel name" },
+        "arrivalDetails": { "type": "string", "description": "Arrival details" },
+        "eta": { "type": "string", "description": "Estimated Time of Arrival" },
+        "status": { "type": "string", "enum": ["Arrived", "In Transit", "Delayed"], "description": "Vessel status" }
+      },
+      "required": ["vesselId", "name", "status"]
+    },
+    "Container": {
+      "title": "Container Details",
+      "description": "Details about a shipping container.",
+      "type": "object",
+      "properties": {
+        "containerNumber": { "type": "string", "description": "Unique container number" },
+        "size": { "type": "string", "description": "Container size (e.g., 20ft, 40ft)" },
+        "type": { "type": "string", "description": "Container type" },
+        "vesselId": { "type": "string", "description": "ID of the associated vessel" },
+        "status": { "type": "string", "enum": ["On Vessel", "Port", "In Transit", "Empty Returned"], "description": "Current status" },
+        "customsStatus": { "type": "string", "enum": ["Pending", "Cleared", "Rejected"], "description": "Customs clearance status" },
+        "gatePassDetails": { "type": "string", "description": "Vehicle gate pass pickup details" },
+        "liftDetails": { "type": "string", "description": "Lift details" },
+        "emptyReturnDetails": { "type": "string", "description": "Empty return details" }
+      },
+      "required": ["containerNumber", "vesselId", "status"]
+    },
+    "TransportJob": {
+      "title": "Transport Job",
+      "description": "A job assigned to a transporter.",
+      "type": "object",
+      "properties": {
+        "jobId": { "type": "string", "description": "Unique job ID" },
+        "containerNumber": { "type": "string", "description": "Container being transported" },
+        "vehicleNumber": { "type": "string", "description": "Vehicle details" },
+        "driverName": { "type": "string", "description": "Driver details" },
+        "driverPhone": { "type": "string", "description": "Driver contact" },
+        "estimatedLifting": { "type": "string", "description": "Estimated lifting time" },
+        "estimatedArrival": { "type": "string", "description": "Estimated arrival time" },
+        "actualLifting": { "type": "string", "description": "Actual lifting time" },
+        "actualArrival": { "type": "string", "description": "Actual arrival time" },
+        "trackingStatus": { "type": "string", "description": "Current tracking info" },
+        "transporterId": { "type": "string", "description": "UID of the transporter" }
+      },
+      "required": ["jobId", "containerNumber", "transporterId"]
+    },
+    "GateLog": {
+      "title": "Gate Log",
+      "description": "Log of vehicle gate entry and exit.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string", "description": "Unique log ID" },
+        "vehicleNumber": { "type": "string", "description": "Vehicle number" },
+        "type": { "type": "string", "enum": ["In", "Out"], "description": "Gate in or out" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Time of event" },
+        "pointId": { "type": "string", "description": "ID of the loading/unloading point" }
+      },
+      "required": ["logId", "vehicleNumber", "type", "timestamp"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification for a user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "success", "warning", "error"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "link": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "message", "type", "read", "createdAt"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A conversation between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "participants": { "type": "array", "items": { "type": "string" }, "description": "UIDs of the participants" },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "participants", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "A message within a chat.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "chatId", "senderId", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/shipments": { "schema": "Shipment", "description": "Active and historical shipments" },
+    "/vessels": { "schema": "Vessel", "description": "Vessel arrival and details" },
+    "/fleet": { "schema": "FleetVehicle", "description": "Fleet vehicle status" },
+    "/users": { "schema": "User", "description": "User profiles and roles" },
+    "/containers": { "schema": "Container", "description": "Container tracking and customs" },
+    "/transportJobs": { "schema": "TransportJob", "description": "Jobs assigned to transporters" },
+    "/gateLogs": { "schema": "GateLog", "description": "Gate entry/exit logs" },
+    "/notifications": { "schema": "Notification", "description": "User notifications" },
+    "/chats": { "schema": "Chat", "description": "Conversations between users" },
+    "/chats/{chatId}/messages": { "schema": "ChatMessage", "description": "Messages in a specific chat" }
+  }
+}

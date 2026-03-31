@@ -1,0 +1,279 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: shipments
+// Fields:
+//   - trackingId: string (required) - Unique tracking ID
+//   - destination: string (required) - Destination address
+//   - status: string (required, enum: In Transit, Delivered, Delayed, Pending)
+//   - eta: string (optional) - Estimated Time of Arrival
+//   - driverId: string (optional) - Assigned driver UID
+//   - driverName: string (optional) - Assigned driver name
+//   - currentLat: number (optional) - Current latitude
+//   - currentLng: number (optional) - Current longitude
+//   - updatedAt: timestamp (required) - Last update time
+//
+// Collection: inventory
+// Fields:
+//   - sku: string (required) - Stock Keeping Unit
+//   - name: string (required) - Item name
+//   - category: string (optional) - Item category
+//   - stock: number (required) - Current stock level
+//   - threshold: number (required) - Minimum stock threshold
+//   - warehouse: string (optional) - Warehouse location
+//   - unit: string (optional) - Unit of measurement
+//
+// Collection: fleet
+// Fields:
+//   - vehicleId: string (required) - Unique vehicle ID
+//   - type: string (required) - Vehicle type
+//   - status: string (required, enum: Active, Maintenance, Idle)
+//   - currentDriverId: string (optional) - Current driver UID
+//   - lastMaintenance: timestamp (optional) - Last maintenance date
+//
+// Collection: users
+// Fields:
+//   - uid: string (required) - Firebase Auth UID
+//   - email: string (required) - User email
+//   - displayName: string (optional) - User display name
+//   - role: string (required, enum: admin, transporter, clearing_agent, receiver, warehouse_manager)
+//   - photoURL: string (optional) - User avatar URL
+//
+// Collection: vessels
+// Fields:
+//   - id: string (required)
+//   - name: string (required)
+//   - expectedDate: string (required)
+//   - totalContainers: number (required)
+//   - status: string (required, enum: Expected, Arrived, Discharged)
+//   - updatedAt: timestamp (required)
+//
+// Collection: containers
+// Fields:
+//   - containerNumber: string (required)
+//   - size: string (optional)
+//   - type: string (optional)
+//   - vesselId: string (required)
+//   - status: string (required)
+//   - customsStatus: string (required)
+//
+// Collection: transportJobs
+// Fields:
+//   - jobId: string (required)
+//   - containerNumber: string (required)
+//   - vehicleNumber: string (optional)
+//   - driverName: string (optional)
+//   - transporterId: string (required)
+//
+// Collection: gateLogs
+// Fields:
+//   - logId: string (required)
+//   - vehicleNumber: string (required)
+//   - type: string (required, enum: In, Out)
+//   - timestamp: timestamp (required)
+//   - pointId: string (optional)
+//
+// Collection: notifications
+// Fields:
+//   - id: string (required)
+//   - userId: string (required)
+//   - title: string (required)
+//   - message: string (required)
+//   - type: string (required, enum: info, success, warning, error)
+//   - read: boolean (required)
+//   - createdAt: timestamp (required)
+//   - link: string (optional)
+//
+// Collection: chats
+// Fields:
+//   - id: string (required)
+//   - participants: list (required) - UIDs of the participants
+//   - lastMessage: string (optional)
+//   - lastMessageAt: timestamp (optional)
+//   - updatedAt: timestamp (required)
+//
+// Collection: chats/{chatId}/messages
+// Fields:
+//   - id: string (required)
+//   - chatId: string (required)
+//   - senderId: string (required)
+//   - text: string (required)
+//   - createdAt: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserRole() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role 
+        : 'none';
+    }
+
+    function canManageUsers() {
+      let role = getUserRole();
+      let perms = get(/databases/$(database)/documents/settings/rolePermissions).data;
+      return role in perms && perms[role].canManageUsers == true;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        ((request.auth.token.email == "samiarain9797@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isTransporter() {
+      return isAuthenticated() && (getUserRole() == 'transporter' || isAdmin());
+    }
+
+    function isClearingAgent() {
+      return isAuthenticated() && (getUserRole() == 'clearing_agent' || isAdmin());
+    }
+
+    function isPointOperator() {
+      return isAuthenticated() && (getUserRole() == 'point_operator' || isAdmin());
+    }
+
+    function isReceiver() {
+      return isAuthenticated() && (getUserRole() == 'receiver' || isAdmin());
+    }
+
+    function isWarehouseManager() {
+      return isAuthenticated() && (getUserRole() == 'warehouse_manager' || isAdmin());
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data, userId) {
+      return data.uid is string && data.uid == userId &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['admin', 'sub_admin', 'transporter', 'clearing_agent', 'receiver', 'warehouse_manager', 'dispatcher', 'point_operator'] &&
+             (!('username' in data) || data.username is string) &&
+             (!('isTemporary' in data) || data.isTemporary is bool);
+    }
+
+    function isValidVessel(data) {
+      return data.id is string && data.name is string && data.status in ['Expected', 'Arrived', 'Discharged'] &&
+             data.totalContainers is number && data.expectedDate is string;
+    }
+
+    function isValidContainer(data) {
+      return data.containerNumber is string && data.vesselId is string && data.status is string;
+    }
+
+    function isValidTransportJob(data) {
+      return data.jobId is string && data.containerNumber is string && data.transporterId is string;
+    }
+
+    function isValidGateLog(data) {
+      return data.logId is string && data.vehicleNumber is string && data.type in ['In', 'Out'];
+    }
+
+    function isValidNotification(data) {
+      return data.id is string && data.userId is string && data.title is string &&
+             data.message is string && data.type in ['info', 'success', 'warning', 'error'] &&
+             data.read is bool && data.createdAt is timestamp;
+    }
+
+    function isValidChat(data) {
+      return data.id is string && data.participants is list && data.participants.size() >= 2 &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data) {
+      return data.id is string && data.chatId is string && data.senderId is string &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 5000 &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    function canCreateShipments() {
+      let role = getUserRole();
+      let perms = get(/databases/$(database)/documents/settings/rolePermissions).data;
+      return role in perms && perms[role].canCreateShipments == true;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isOwner(userId) || isAdmin() || canManageUsers()) && isValidUser(request.resource.data, userId) &&
+                    (request.resource.data.role != 'admin' || isAdmin());
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin() || canManageUsers()) && 
+                    (isAdmin() || canManageUsers() || (isOwner(userId) && request.resource.data.role == resource.data.role)) &&
+                    (request.resource.data.role != 'admin' || isAdmin() || (isOwner(userId) && resource.data.role == 'admin')) &&
+                    (resource.data.role != 'admin' || isAdmin() || isOwner(userId));
+      allow delete: if isAuthenticated() && (isAdmin() || (canManageUsers() && resource.data.role != 'admin'));
+    }
+
+    match /shipments/{shipmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isAdmin() || canCreateShipments());
+      allow update: if isAuthenticated() && (isAdmin() || canCreateShipments() || 
+                    (isClearingAgent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vesselName', 'vesselArrivalDetails', 'containerNumber', 'containerSize', 'customsClearanceStatus', 'portGateInTime', 'portGateOutTime', 'gatePassPickupDetails', 'liftDetails', 'emptyReturnDetails', 'clearingAgentId', 'updatedAt'])) ||
+                    (isTransporter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vehicleDetails', 'driverDetails', 'estimatedLiftingTime', 'estimatedArrivalTime', 'actualLiftingTime', 'actualArrivalTime', 'manualTrackingInfo', 'liveTrackingUrl', 'updatedAt'])) ||
+                    (isReceiver() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivingDocUrl', 'receivingTime', 'factoryGateInTime', 'unloadingTime', 'unloadingLocation', 'unloadingArrivalDate', 'unloadingDate', 'unloadingGateOutDate', 'factoryGateOutTime', 'receiverId', 'returnStationName', 'returnWarehouseDetails', 'returnMaterialsDetails', 'hasReturnLoad', 'updatedAt'])) ||
+                    (isWarehouseManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivingDocUrl', 'receivingTime', 'unloadingTime', 'unloadingLocation', 'unloadingArrivalDate', 'unloadingDate', 'unloadingGateOutDate', 'updatedAt'])));
+      allow delete: if isAuthenticated() && (isAdmin() || canCreateShipments());
+    }
+
+    match /vessels/{vesselId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isClearingAgent();
+    }
+
+    match /fleet/{vehicleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin()) && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAdmin();
+    }
+
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants && isValidChat(request.resource.data);
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants && 
+                    (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'updatedAt']));
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if isAuthenticated() && request.auth.uid == request.resource.data.senderId && 
+                      request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+                      isValidChatMessage(request.resource.data);
+      }
+    }
+  }
+}
