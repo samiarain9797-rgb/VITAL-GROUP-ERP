@@ -1,0 +1,19 @@
+295:  const [isEditing, setIsEditing] = useState(false);
+542:            (isEditing ? (
+636:            {isEditing && (perms.planning === "write" || perms.clearing === "write") ? (
+702:            {isEditing && perms.planning === "write" ? (
+816:            {isEditing && perms.clearing === "write" ? (
+986:            {isEditing && perms.assignment === "write" ? (
+1046:            {isEditing && perms.transit === "write" ? (
+1238:            {isEditing && perms.unloading === "write" ? (
+1361:            {isEditing && (perms.returnLoad === "write" || isAssignedWarehouse) ? (
+1496:            {isEditing ? (
+1604:            {isEditing && perms.completion === "write" ? (
+1670:          {isEditing ? (
+2046:              {isEditing && (
+2875:      const isEditing = !!editingVesselId;
+2876:      const vesselId = isEditing ? editingVesselId : doc(collection(db, "vessels")).id;
+2894:      if (isEditing) {
+2935:        isEditing ? "Vessel Updated" : "New Vessel Added",
+2936:        `Vessel ${newVessel.name} has been ${isEditing ? 'updated' : 'added'} with ${totalContainers} containers.`,
+2947:      handleFirestoreError(error, isEditing ? OperationType.UPDATE : OperationType.CREATE, "vessels");

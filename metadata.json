@@ -2,6 +2,7 @@
   "name": "Vital Logistics ERP",
   "description": "A comprehensive logistics and supply chain management system for Vital Group of Companies, featuring real-time tracking, vessel planning, and fleet management.",
   "requestFramePermissions": [
-    "geolocation"
+    "geolocation",
+    "microphone"
   ]
 }

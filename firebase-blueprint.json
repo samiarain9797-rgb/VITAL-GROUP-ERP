@@ -208,11 +208,41 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "chatId", "senderId", "text", "createdAt"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "A company that has shipments.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "shipmentType": { "type": "string", "enum": ["Port Based", "Loading Point Based"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "shipmentType", "createdAt"]
+    },
+    "LoadingPoint": {
+      "title": "Loading Point",
+      "description": "A loading point for a Loading Point Based company.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "companyId": { "type": "string" },
+        "companyName": { "type": "string" },
+        "address": { "type": "string" },
+        "description": { "type": "string" },
+        "documentUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "companyId", "createdAt"]
     }
   },
   "firestore": {
     "/shipments": { "schema": "Shipment", "description": "Active and historical shipments" },
     "/vessels": { "schema": "Vessel", "description": "Vessel arrival and details" },
+    "/companies": { "schema": "Company", "description": "Companies" },
+    "/loadingPoints": { "schema": "LoadingPoint", "description": "Loading Points" },
     "/fleet": { "schema": "FleetVehicle", "description": "Fleet vehicle status" },
     "/users": { "schema": "User", "description": "User profiles and roles" },
     "/containers": { "schema": "Container", "description": "Container tracking and customs" },

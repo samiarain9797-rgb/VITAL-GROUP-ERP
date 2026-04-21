@@ -101,6 +101,20 @@
 //   - text: string (required)
 //   - createdAt: timestamp (required)
 //
+// Collection: complaints
+// Fields:
+//   - id: string (required)
+//   - subject: string (required)
+//   - category: string (required)
+//   - priority: string (required)
+//   - status: string (required)
+//   - description: string (required)
+//   - relatedId: string (optional)
+//   - createdBy: string (required)
+//   - createdAt: timestamp (required)
+//   - updatedAt: timestamp (required)
+//   - comments: list (optional)
+//
 // ===============================================================
 
 rules_version = '2';
@@ -127,8 +141,8 @@ service cloud.firestore {
 
     function canManageUsers() {
       let role = getUserRole();
-      let perms = get(/databases/$(database)/documents/settings/rolePermissions).data;
-      return role in perms && perms[role].canManageUsers == true;
+      let permsDoc = /databases/$(database)/documents/settings/rolePermissions;
+      return exists(permsDoc) && role in get(permsDoc).data && get(permsDoc).data[role].canManageUsers == true;
     }
 
     function isAdmin() {
@@ -139,6 +153,10 @@ service cloud.firestore {
 
     function isTransporter() {
       return isAuthenticated() && (getUserRole() == 'transporter' || isAdmin());
+    }
+
+    function isDispatcher() {
+      return isAuthenticated() && (getUserRole() == 'dispatcher' || isAdmin());
     }
 
     function isClearingAgent() {
@@ -207,14 +225,22 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidComplaint(data) {
+      return data.id is string && data.subject is string && data.category is string &&
+             data.priority in ['Low', 'Medium', 'High', 'Critical'] &&
+             data.status in ['Open', 'In Progress', 'Resolved', 'Closed'] &&
+             data.description is string && data.createdBy is string &&
+             data.createdAt is timestamp && data.updatedAt is timestamp;
+    }
+
     // ===============================================================
     // Collection Rules
     // ===============================================================
 
     function canCreateShipments() {
       let role = getUserRole();
-      let perms = get(/databases/$(database)/documents/settings/rolePermissions).data;
-      return role in perms && perms[role].canCreateShipments == true;
+      let permsDoc = /databases/$(database)/documents/settings/rolePermissions;
+      return exists(permsDoc) && role in get(permsDoc).data && get(permsDoc).data[role].canCreateShipments == true;
     }
 
     match /users/{userId} {
@@ -232,16 +258,42 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && (isAdmin() || canCreateShipments());
       allow update: if isAuthenticated() && (isAdmin() || canCreateShipments() || 
-                    (isClearingAgent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vesselName', 'vesselArrivalDetails', 'containerNumber', 'containerSize', 'customsClearanceStatus', 'portGateInTime', 'portGateOutTime', 'gatePassPickupDetails', 'liftDetails', 'emptyReturnDetails', 'clearingAgentId', 'updatedAt'])) ||
-                    (isTransporter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vehicleDetails', 'driverDetails', 'estimatedLiftingTime', 'estimatedArrivalTime', 'actualLiftingTime', 'actualArrivalTime', 'manualTrackingInfo', 'liveTrackingUrl', 'updatedAt'])) ||
-                    (isReceiver() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivingDocUrl', 'receivingTime', 'factoryGateInTime', 'unloadingTime', 'unloadingLocation', 'unloadingArrivalDate', 'unloadingDate', 'unloadingGateOutDate', 'factoryGateOutTime', 'receiverId', 'returnStationName', 'returnWarehouseDetails', 'returnMaterialsDetails', 'hasReturnLoad', 'updatedAt'])) ||
-                    (isWarehouseManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivingDocUrl', 'receivingTime', 'unloadingTime', 'unloadingLocation', 'unloadingArrivalDate', 'unloadingDate', 'unloadingGateOutDate', 'updatedAt'])));
-      allow delete: if isAuthenticated() && (isAdmin() || canCreateShipments());
+                    (isDispatcher() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['transporterId', 'status', 'updatedAt', 'history'])) ||
+                    (isClearingAgent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['containerNumber', 'containerSizeAndType', 'grossWeight', 'numberOfPackages', 'commodityDescription', 'dutyPayDate', 'clearanceDate', 'updatedAt', 'history'])) ||
+                    (isTransporter() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vehicleNumber', 'vehicleType', 'driverName', 'driverPhone', 'driverIdCardUrl', 'transporterDocs', 'liveTrackingUrl', 'actualLiftingTime', 'actualPickupTime', 'returnWarehouseDetails', 'returnLoadDestination', 'returnLoadMaterialDetails', 'returnLoadQuantity', 'returnLoadReceivedStatus', 'returnLoadReceivedDate', 'returnLoadDocument', 'returnLoadDocumentName', 'emptyContainerReturnTime', 'status', 'costing', 'updatedAt', 'history'])) ||
+                    (isReceiver() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unloadingLocation', 'factoryGateInTime', 'unloadingDate', 'factoryGateOutTime', 'receivingDocUrl', 'updatedAt', 'history'])) ||
+                    (isWarehouseManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['returnLoadReceivedStatus', 'returnLoadReceivedDate', 'returnLoadDocument', 'returnLoadDocumentName', 'updatedAt', 'history'])));
+      allow delete: if isAuthenticated() && (isAdmin() || canCreateShipments() || isClearingAgent());
+    }
+
+    match /route_costings/{costingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isTransporter());
+    }
+
+    match /fuel_prices/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /transporter_rates/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     match /vessels/{vesselId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin() || isClearingAgent();
+    }
+
+    match /companies/{companyId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || canCreateShipments() || isClearingAgent();
+    }
+
+    match /loadingPoints/{pointId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || canCreateShipments() || isClearingAgent();
     }
 
     match /fleet/{vehicleId} {
@@ -274,6 +326,14 @@ service cloud.firestore {
                       request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
                       isValidChatMessage(request.resource.data);
       }
+    }
+
+    match /complaints/{complaintId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.createdBy == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.createdBy == request.auth.uid && isValidComplaint(request.resource.data);
+      allow update: if isAuthenticated() && (isAdmin() || resource.data.createdBy == request.auth.uid) && 
+                    (isAdmin() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments', 'updatedAt']));
+      allow delete: if isAdmin();
     }
   }
 }
