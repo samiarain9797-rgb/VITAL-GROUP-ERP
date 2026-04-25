@@ -13,9 +13,15 @@ const InvoicesView = ({ profile }) => {
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'invoices'), (snapshot) => {
-      setInvoices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    const unsub = onSnapshot(
+      collection(db, 'invoices'), 
+      (snapshot) => {
+        setInvoices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      },
+      (error) => {
+        console.error("Invoices Fetch Error:", error);
+      }
+    );
     return () => unsub();
   }, []);
 
@@ -26,7 +32,21 @@ const InvoicesView = ({ profile }) => {
 
   const handleRecordPayment = async (e) => {
     e.preventDefault();
-    if (!paymentData.amount || !paymentData.date) return;
+    if (!paymentData.amount || !paymentData.date) {
+      alert("Please enter the amount and date.");
+      return;
+    }
+    
+    if (parseFloat(paymentData.amount) <= 0) {
+      alert("Amount must be greater than zero.");
+      return;
+    }
+    
+    const maxAmount = paymentModal.invoice.totalAmount - (paymentModal.invoice.payments || []).filter(p => p.status === 'Approved').reduce((s, p) => s + p.amount, 0);
+    if (parseFloat(paymentData.amount) > maxAmount) {
+      alert("Amount exceeds the remaining balance of the invoice.");
+      return;
+    }
 
     try {
       setIsUploading(true);
@@ -77,8 +97,8 @@ const InvoicesView = ({ profile }) => {
   };
 
   const handleApprovePayment = async (invoice, paymentIndex) => {
-    if (profile?.role !== 'admin') {
-      alert("Only admins can approve payments.");
+    if (profile?.role !== 'admin' && profile?.role !== 'accountant') {
+      alert("Only admins and accountants can approve payments.");
       return;
     }
 
@@ -193,7 +213,7 @@ const InvoicesView = ({ profile }) => {
                                   )}>
                                     {p.status}
                                   </span>
-                                  {p.status === 'Pending Approval' && profile?.role === 'admin' && (
+                                  {p.status === 'Pending Approval' && (profile?.role === 'admin' || profile?.role === 'accountant') && (
                                     <button onClick={() => handleApprovePayment(inv, idx)} className="text-[10px] font-bold bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700">
                                       Verify & Approve
                                     </button>
@@ -223,7 +243,7 @@ const InvoicesView = ({ profile }) => {
             <form onSubmit={handleRecordPayment} className="space-y-4 text-sm">
               <div>
                  <label className="block text-xs font-bold text-zinc-700 mb-1">Amount Paid (PKR)</label>
-                 <input type="number" required max={paymentModal.invoice.totalAmount} value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2" />
+                 <input type="number" required max={paymentModal.invoice.totalAmount - (paymentModal.invoice.payments || []).filter(p => p.status === 'Approved').reduce((s, p) => s + p.amount, 0)} value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

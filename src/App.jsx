@@ -205,6 +205,19 @@ const DEFAULT_PERMISSIONS = {
     canManageUsers: false,
     canManageVessels: false,
   },
+  accountant: {
+    planning: "read",
+    clearing: "read",
+    assignment: "read",
+    transit: "read",
+    unloading: "read",
+    returnLoad: "read",
+    completion: "read",
+    costing: "read",
+    canCreateShipments: false,
+    canManageUsers: false,
+    canManageVessels: false,
+  },
   receiver: {
     planning: "read",
     clearing: "read",
@@ -4669,11 +4682,12 @@ function ShipmentsView({
 
   const handleCreateShipments = async () => {
     try {
+      const companyName = newShipment.companyName || selectedVesselData?.company || '';
       const loadingPoint = newShipment.loadingPoint || '';
       const unloadingPoint = newShipment.unloadingPoint || '';
 
-      if (!loadingPoint || !unloadingPoint) {
-        alert("Please select both Loading Point and Unloading Point.");
+      if (!companyName || !loadingPoint || !unloadingPoint) {
+        alert("Please select Company, Loading Point, and Unloading Point.");
         return;
       }
 
@@ -4734,11 +4748,12 @@ function ShipmentsView({
 
   const handleCreateLocalShipment = async () => {
     try {
+      const companyName = newShipment.companyName || '';
       const loadingPoint = newShipment.loadingPoint || '';
       const unloadingPoint = newShipment.unloadingPoint || '';
 
-      if (!loadingPoint || !unloadingPoint) {
-        alert("Please select both Loading Point and Unloading Point.");
+      if (!companyName || !loadingPoint || !unloadingPoint) {
+        alert("Please select Company, Loading Point, and Unloading Point.");
         return;
       }
 
@@ -4953,7 +4968,7 @@ function ShipmentsView({
           >
             <Printer size={16} /> Print
           </button>
-          {rolePermissions[profile?.role || "transporter"]?.canCreateShipments && (
+          {(rolePermissions[profile?.role || "transporter"]?.canCreateShipments ?? DEFAULT_PERMISSIONS[profile?.role || "transporter"]?.canCreateShipments) && (
             <>
               <label className="cursor-pointer px-4 py-2 bg-white border-2 border-zinc-200 hover:bg-zinc-50 text-zinc-700 rounded-xl text-sm font-bold transition-all shadow-[0_4px_0_rgb(228,228,231)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(228,228,231)] active:translate-y-0 active:shadow-[0_0px_0_rgb(228,228,231)] flex items-center gap-2">
                 <Upload size={16} /> Bulk Import CSV
@@ -5000,7 +5015,7 @@ function ShipmentsView({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-700 mb-1">Company</label>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">Company *</label>
               <select
                 className="w-full bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
                 value={newShipment.companyName || ""}
@@ -5023,7 +5038,7 @@ function ShipmentsView({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-zinc-700">Loading Point</label>
+              <label className="block text-xs font-medium text-zinc-700">Loading Point *</label>
               <SearchableSelect
                 options={locationOptions}
                 value={newShipment.loadingPoint}
@@ -5033,7 +5048,7 @@ function ShipmentsView({
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-zinc-700">Unloading Point</label>
+              <label className="block text-xs font-medium text-zinc-700">Unloading Point *</label>
               <SearchableSelect
                 options={locationOptions}
                 value={newShipment.unloadingPoint}
@@ -5295,7 +5310,8 @@ const PermissionsView = ({ rolePermissions }) => {
       const newPermissions = {
         ...rolePermissions,
         [role]: {
-          ...rolePermissions[role],
+          ...(DEFAULT_PERMISSIONS[role] || {}),
+          ...(rolePermissions[role] || {}),
           [section]: value,
         },
       };
@@ -5312,6 +5328,7 @@ const PermissionsView = ({ rolePermissions }) => {
   const roles = [
     "admin",
     "sub_admin",
+    "accountant",
     "dispatcher",
     "clearing_agent",
     "transporter",
@@ -5376,7 +5393,7 @@ const PermissionsView = ({ rolePermissions }) => {
                 {sections.map((section) => (
                   <td key={section} className="px-6 py-4 text-center">
                     <select
-                      value={rolePermissions[role][section]}
+                      value={rolePermissions[role]?.[section] ?? DEFAULT_PERMISSIONS[role]?.[section] ?? "none"}
                       onChange={(e) =>
                         handlePermissionChange(role, section, e.target.value)
                       }
@@ -5391,7 +5408,7 @@ const PermissionsView = ({ rolePermissions }) => {
                 <td className="px-6 py-4 text-center">
                   <input
                     type="checkbox"
-                    checked={rolePermissions[role].canCreateShipments}
+                    checked={rolePermissions[role]?.canCreateShipments ?? DEFAULT_PERMISSIONS[role]?.canCreateShipments ?? false}
                     onChange={(e) =>
                       handlePermissionChange(
                         role,
@@ -5405,7 +5422,7 @@ const PermissionsView = ({ rolePermissions }) => {
                 <td className="px-6 py-4 text-center">
                   <input
                     type="checkbox"
-                    checked={rolePermissions[role].canManageUsers}
+                    checked={rolePermissions[role]?.canManageUsers ?? DEFAULT_PERMISSIONS[role]?.canManageUsers ?? false}
                     onChange={(e) =>
                       handlePermissionChange(
                         role,
@@ -5419,7 +5436,7 @@ const PermissionsView = ({ rolePermissions }) => {
                 <td className="px-6 py-4 text-center">
                   <input
                     type="checkbox"
-                    checked={rolePermissions[role].canManageVessels}
+                    checked={rolePermissions[role]?.canManageVessels ?? DEFAULT_PERMISSIONS[role]?.canManageVessels ?? false}
                     onChange={(e) =>
                       handlePermissionChange(
                         role,
@@ -6537,6 +6554,107 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
   );
 };
 
+const MyCompanyView = ({ profile, companiesData }) => {
+  const [formData, setFormData] = useState({
+    name: "",
+    address: "",
+    ntn: "",
+    contactNumber: "",
+    documentUrl: "",
+    status: "Pending"
+  });
+  const [companyId, setCompanyId] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (profile?.uid && companiesData) {
+      const myCompany = companiesData.find(c => c.transporterId === profile.uid);
+      if (myCompany) {
+        setCompanyId(myCompany.id);
+        setFormData({
+          name: myCompany.name || "",
+          address: myCompany.address || "",
+          ntn: myCompany.ntn || "",
+          contactNumber: myCompany.contactNumber || "",
+          documentUrl: myCompany.documentUrl || "",
+          status: myCompany.status || "Pending"
+        });
+      }
+    }
+  }, [profile, companiesData]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSave = async () => {
+    if (!companyId) return;
+    setIsSaving(true);
+    try {
+      await updateDoc(doc(db, "companies", companyId), {
+        ...formData,
+        updatedAt: Timestamp.now()
+      });
+      alert("Company details updated successfully.");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update company details.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!companyId) {
+    return <div className="p-8 text-center text-gray-500 bg-white rounded shadow mx-4 mt-4">No company profile found dynamically linked to your account.</div>;
+  }
+
+  return (
+    <div className="p-6 max-w-2xl mx-auto w-full">
+      <div className="mb-6 flex space-x-4 justify-between items-center bg-white p-6 rounded shadow border border-gray-100">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">My Company Profile</h2>
+          <p className="text-sm text-gray-500 mt-1">Manage your transporter identity and business details.</p>
+        </div>
+        <span className={`px-4 py-2 rounded text-xs font-semibold uppercase tracking-wider ${formData.status === 'Pending' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+          {formData.status}
+        </span>
+      </div>
+      <div className="space-y-4 bg-white p-6 rounded shadow border border-gray-100">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
+          <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+          <input type="text" name="address" value={formData.address} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Information</label>
+          <input type="text" name="contactNumber" value={formData.contactNumber} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">NTN / Registration Number</label>
+          <input type="text" name="ntn" value={formData.ntn} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Document URL (PDF/Image Link)</label>
+          <input type="text" name="documentUrl" value={formData.documentUrl} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" placeholder="https://..." />
+        </div>
+        <div className="pt-4 text-right">
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="px-6 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50 font-medium transition-colors shadow-sm"
+          >
+            {isSaving ? "Saving..." : "Save Details"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const CompaniesView = ({ companiesData }) => {
   const [showModal, setShowModal] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
@@ -7207,7 +7325,10 @@ const UsersView = ({ users, profile, shipments = [] }) => {
           ntn: "",
           contactNumber: "",
           logoUrl: "",
+          documentUrl: "",
           type: "transporter",
+          status: "Pending",
+          transporterId: uid,
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         });
@@ -8179,13 +8300,15 @@ function MainApp() {
             onClick={() => setActiveTab("Shipments")}
           />
 
-          <SidebarItem
-            isSidebarOpen={isSidebarOpen}
-            icon={FileSpreadsheet}
-            label="Invoices"
-            active={activeTab === "Invoices"}
-            onClick={() => setActiveTab("Invoices")}
-          />
+          {(profile?.role === "admin" || profile?.role === "accountant") && (
+            <SidebarItem
+              isSidebarOpen={isSidebarOpen}
+              icon={FileSpreadsheet}
+              label="Invoices"
+              active={activeTab === "Invoices"}
+              onClick={() => setActiveTab("Invoices")}
+            />
+          )}
 
           <SidebarItem
             isSidebarOpen={isSidebarOpen}
@@ -8212,8 +8335,17 @@ function MainApp() {
               onClick={() => setActiveTab("Companies")}
             />
           )}
+          {profile?.role === "transporter" && (
+            <SidebarItem
+              isSidebarOpen={isSidebarOpen}
+              icon={Building2}
+              label="My Company"
+              active={activeTab === "MyCompany"}
+              onClick={() => setActiveTab("MyCompany")}
+            />
+          )}
 
-          {(profile?.role === "admin" || profile?.role === "transporter") && (
+          {(profile?.role === "admin" || profile?.role === "transporter" || profile?.role === "accountant") && (
             <SidebarItem
               isSidebarOpen={isSidebarOpen}
               icon={DollarSign}
@@ -8223,7 +8355,7 @@ function MainApp() {
             />
           )}
 
-          {profile?.role === "admin" && (
+          {(profile?.role === "admin" || profile?.role === "accountant") && (
             <SidebarItem
               isSidebarOpen={isSidebarOpen}
               icon={FileSpreadsheet}
@@ -8245,8 +8377,7 @@ function MainApp() {
 
           {(profile?.role === "admin" ||
             profile?.role === "clearing_agent" ||
-            rolePermissions[profile?.role || "transporter"]
-              .canManageVessels) && (
+            (rolePermissions[profile?.role || "transporter"]?.canManageVessels ?? DEFAULT_PERMISSIONS[profile?.role || "transporter"]?.canManageVessels)) && (
             <SidebarItem
               isSidebarOpen={isSidebarOpen}
               icon={Package}
@@ -8257,7 +8388,7 @@ function MainApp() {
           )}
 
           {(profile?.role === "admin" ||
-            rolePermissions[profile?.role || "transporter"]?.canManageUsers) && (
+            (rolePermissions[profile?.role || "transporter"]?.canManageUsers ?? DEFAULT_PERMISSIONS[profile?.role || "transporter"]?.canManageUsers)) && (
             <SidebarItem
               isSidebarOpen={isSidebarOpen}
               icon={Users}
@@ -8542,6 +8673,9 @@ function MainApp() {
               )}
               {activeTab === "Companies" && (
                 <CompaniesView companiesData={companiesData} />
+              )}
+              {activeTab === "MyCompany" && (
+                <MyCompanyView profile={profile} companiesData={companiesData} />
               )}
               {activeTab === "Costing" && (
                 <CostingView shipments={shipments} profile={profile} />

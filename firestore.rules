@@ -167,6 +167,10 @@ service cloud.firestore {
       return isAuthenticated() && (getUserRole() == 'point_operator' || isAdmin());
     }
 
+    function isAccountant() {
+      return isAuthenticated() && (getUserRole() == 'accountant' || isAdmin());
+    }
+
     function isReceiver() {
       return isAuthenticated() && (getUserRole() == 'receiver' || isAdmin());
     }
@@ -186,7 +190,7 @@ service cloud.firestore {
     function isValidUser(data, userId) {
       return data.uid is string && data.uid == userId &&
              data.email is string && isValidEmail(data.email) &&
-             data.role in ['admin', 'sub_admin', 'transporter', 'clearing_agent', 'receiver', 'warehouse_manager', 'dispatcher', 'point_operator'] &&
+             data.role in ['admin', 'sub_admin', 'transporter', 'clearing_agent', 'receiver', 'warehouse_manager', 'dispatcher', 'point_operator', 'accountant'] &&
              (!('username' in data) || data.username is string) &&
              (!('isTemporary' in data) || data.isTemporary is bool);
     }
@@ -243,6 +247,10 @@ service cloud.firestore {
       return exists(permsDoc) && role in get(permsDoc).data && get(permsDoc).data[role].canCreateShipments == true;
     }
 
+    match /test/{document=**} {
+      allow read: if true;
+    }
+    
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && (isOwner(userId) || isAdmin() || canManageUsers()) && isValidUser(request.resource.data, userId) &&
@@ -268,17 +276,17 @@ service cloud.firestore {
 
     match /route_costings/{costingId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (isAdmin() || isTransporter());
+      allow write: if isAuthenticated() && (isAdmin() || isTransporter() || isAccountant());
     }
 
     match /fuel_prices/{id} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isAccountant();
     }
 
     match /transporter_rates/{id} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isAccountant();
     }
 
     match /vessels/{vesselId} {
@@ -288,7 +296,7 @@ service cloud.firestore {
 
     match /companies/{companyId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin() || canCreateShipments() || isClearingAgent();
+      allow write: if isAdmin() || canCreateShipments() || isClearingAgent() || (isTransporter() && resource.data.transporterId == request.auth.uid);
     }
 
     match /loadingPoints/{pointId} {
@@ -326,6 +334,15 @@ service cloud.firestore {
                       request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
                       isValidChatMessage(request.resource.data);
       }
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || isAccountant() || isTransporter();
+      allow update: if isAdmin() || isAccountant() || 
+                    (isTransporter() && request.auth.uid == resource.data.createdBy) ||
+                    (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['payments', 'paymentStatus', 'updatedAt']));
+      allow delete: if isAdmin() || isAccountant();
     }
 
     match /complaints/{complaintId} {
