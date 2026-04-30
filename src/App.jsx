@@ -52,6 +52,7 @@ import {
   Star,
   Upload,
   Building2,
+  Crosshair,
 } from "lucide-react";
 import Papa from "papaparse";
 import { cn } from "./lib/utils";
@@ -107,13 +108,15 @@ import {
 } from "firebase/firestore";
 import AIAssistant from './components/AIAssistant';
 import ComplaintsView from './components/ComplaintsView';
+import TrackerIntegrationsView from './components/TrackerIntegrationsView';
 import CostingView from './components/CostingView';
 import FreightRatesView from './components/FreightRatesView';
 import SearchableSelect from './components/SearchableSelect';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import DocumentGallery from './components/DocumentGallery';
-import Earth3DTrucks from './components/Earth3DTrucks';
+import LiveTrackingMap from './components/LiveTrackingMap';
 import InvoicesView from './components/InvoicesView';
+import { useTrackerSync } from './hooks/useTrackerSync';
 
 // --- Types ---
 var OperationType = /*#__PURE__*/ (function (OperationType) {
@@ -333,6 +336,7 @@ const ShipmentRow = ({
   rolePermissions,
   users = [],
   companiesData = [],
+  formConfig,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -411,36 +415,8 @@ const ShipmentRow = ({
   };
 
   const handleGenerateInvoice = async (shipment) => {
-    try {
-      const invoiceId = `INV-${shipment.trackingId}`;
-      const invoiceDocData = {
-        id: invoiceId,
-        type: "single",
-        invoiceDate: new Date().toISOString().split('T')[0],
-        dueDate: null,
-        customerName: shipment.companyName || "N/A",
-        totalAmount: shipment.totalCost || 0,
-        shipmentIds: [shipment.id],
-        paymentStatus: "Pending",
-        payments: [],
-        createdAt: serverTimestamp(),
-        createdBy: profile?.uid
-      };
-      
-      // Mark as invoiced in Firestore
-      await updateDoc(doc(db, "shipments", shipment.id), {
-        invoiced: true,
-        invoiceId: invoiceId,
-        invoiceDate: invoiceDocData.invoiceDate,
-        updatedAt: serverTimestamp()
-      });
-      await setDoc(doc(db, "invoices", invoiceId), invoiceDocData);
-      alert("Invoice generated and tracked. You can now manage its payment in the Invoices tab.");
-    } catch (err) {
-      console.error("Error creating single invoice:", err);
-      alert("Failed to track this invoice payment, but attempting print anyway.");
-    }
-
+    const isDuplicate = shipment.invoiced === true;
+    
     const content = `
       <html>
         <head>
@@ -523,7 +499,7 @@ const ShipmentRow = ({
             <div class="shipment-info">
             <div class="info-item">
               <div class="info-label">Tracking ID</div>
-              <div class="info-value">${shipment.trackingId}</div>
+              <div class="info-value">${shipment.trackingId}${isDuplicate ? ' <span style="font-size:10px; color:#c2410c;">(DUPLICATE)</span>' : ''}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Container</div>
@@ -615,6 +591,47 @@ const ShipmentRow = ({
       </html>
     `;
 
+    try {
+      const invoiceId = `INV-${shipment.trackingId}`;
+      const invRef = doc(db, "invoices", invoiceId);
+      const invSnap = await getDoc(invRef);
+      const baseInvoiceData = {
+        id: invoiceId,
+        type: "single",
+        invoiceDate: new Date().toISOString().split('T')[0],
+        dueDate: null,
+        customerName: shipment.companyName || "N/A",
+        totalAmount: shipment.totalCost || 0,
+        shipmentIds: [shipment.id],
+        invoiceHtml: content,
+        updatedAt: serverTimestamp()
+      };
+
+      if (invSnap.exists()) {
+        await updateDoc(invRef, baseInvoiceData);
+      } else {
+        await setDoc(invRef, {
+          ...baseInvoiceData,
+          paymentStatus: "Pending",
+          payments: [],
+          createdAt: serverTimestamp(),
+          createdBy: profile?.uid
+        });
+      }
+
+      // Mark as invoiced in Firestore
+      await updateDoc(doc(db, "shipments", shipment.id), {
+        invoiced: true,
+        invoiceId: invoiceId,
+        invoiceDate: baseInvoiceData.invoiceDate,
+        updatedAt: serverTimestamp()
+      });
+      alert("Invoice generated and tracked. You can now manage its payment in the Invoices tab.");
+    } catch (err) {
+      console.error("Error creating single invoice:", err);
+      alert("Failed to track this invoice payment, but attempting print anyway.");
+    }
+
     const blob = new Blob([content], { type: "text/html" });
     const localUrl = URL.createObjectURL(blob);
     const printWindow = window.open("", "_blank");
@@ -641,61 +658,59 @@ const ShipmentRow = ({
         }
     }
 
-    // Strict validation blocks based on status progression:
-    const statuses = ["Planning", "Customs Cleared", "In Transit", "Delivered", "Return Load", "Completed"];
-    const statusIndex = statuses.indexOf(editData.status);
+    // Auto-calculate the status based on data presence
+    const isPlanningComplete = !!(editData.containerNumber && editData.containerSizeAndType);
+    const isClearingComplete = !!(editData.grossWeight && editData.numberOfPackages && editData.commodityDescription);
+    const isAssignmentComplete = !!editData.transporterId;
+    const isTransitComplete = !!(editData.vehicleNumber && editData.vehicleType && editData.driverName && editData.driverPhone && (editData.actualPickupTime || editData.actualLiftingTime) && editData.driverIdCardUrl && editData.transporterDocs?.length > 0);
+    const isUnloadingComplete = !!((editData.unloadingLocation || editData.unloadingPoint) && editData.factoryGateInTime && editData.factoryGateOutTime && editData.unloadingDate && editData.receivingDocUrl);
+    
+    const hasReturnLoadPlanned = !!(editData.returnWarehouseDetails);
+    const isReturnLoadReceived = hasReturnLoadPlanned && !!(editData.returnLoadReceivedStatus && editData.returnLoadDocument);
+    const isContainerReturned = !!(editData.emptyContainerReturnTime && editData.emptyContainerEirUrl);
 
-    if (statusIndex >= statuses.indexOf("Customs Cleared") && shipment.type !== "local") {
-        if (!editData.grossWeight || !editData.numberOfPackages || !editData.commodityDescription) {
-            alert("Gross Weight, Number of Packages, and Commodity Description are mandatory fields from Customs Cleared onwards.");
-            return;
-        }
-    }
+    let newStatus = "Waiting for Planning";
 
-    if (statusIndex >= statuses.indexOf("In Transit")) {
-        if (!editData.transporterId) {
-             alert("Assigned Transporter Company is mandatory to move to In Transit.");
-             return;
-        }
-        if (!editData.vehicleNumber || !editData.vehicleType || !editData.driverName || !editData.driverPhone || !editData.actualPickupTime) {
-             alert("Vehicle Number, Vehicle Type, Driver Name, Driver Phone, and Actual Dispatch Time are mandatory once Transit begins.");
-             return;
-        }
-        if (!editData.driverIdCardUrl || !editData.transporterDocs || editData.transporterDocs.length === 0) {
-             alert("Driver ID Card and Transporter Documents must be attached.");
-             return;
-        }
-    }
-
-    if (statusIndex >= statuses.indexOf("Delivered")) {
-        const unloadingLocation = editData.unloadingLocation || editData.unloadingPoint;
-        if (!unloadingLocation || !editData.factoryGateInTime || !editData.factoryGateOutTime || !editData.unloadingDate || !editData.receivingDocUrl) {
-            alert("Unloading Location, Gate In/Out Times, Unloading Date, and Receiving Document are mandatory for Delivery/Completion.");
-            return;
-        }
-    }
-
-    if (statusIndex >= statuses.indexOf("Return Load") && shipment.type !== "local") {
-       if (!editData.returnWarehouseDetails || !editData.returnLoadDestination || !editData.returnLoadMaterialDetails || !editData.returnLoadQuantity) {
-            alert("Return Warehouse, Destination, Materials, and Quantity are mandatory for Return Load.");
-            return;
-       }
-    }
-
-    // Validation for Empty Container Return and Return Load Receipt before Completion
-    if (editData.status === "Completed" && shipment.type !== "local") {
-      if (!editData.emptyContainerReturnTime) {
-        alert("Empty Container Return Date/Time is required to mark the shipment as Completed.");
-        return;
+    if (shipment.type === "local") {
+      if (isUnloadingComplete) {
+          newStatus = "Completed";
+      } else if (isTransitComplete) {
+          newStatus = "Waiting for Unloading";
+      } else if (isAssignmentComplete) {
+          newStatus = "Waiting for Transit";
+      } else if (isPlanningComplete) {
+          newStatus = "Waiting for Assignment";
+      } else {
+          newStatus = "Waiting for Planning";
       }
-      if (!editData.returnLoadReceivedStatus || !editData.returnLoadDocument) {
-        alert("Return Load Receipt Status and Document are required by the receiving warehouse to mark the shipment as Completed.");
-        return;
+    } else {
+      if (isContainerReturned && isUnloadingComplete && (!hasReturnLoadPlanned || isReturnLoadReceived)) {
+          newStatus = "Completed";
+      } else if (isUnloadingComplete) {
+          if (hasReturnLoadPlanned) {
+              if (isReturnLoadReceived) {
+                  newStatus = "Waiting for Completion";
+              } else {
+                  newStatus = "Wait for Return Receiving";
+              }
+          } else {
+              newStatus = "Waiting for Completion";
+          }
+      } else if (isTransitComplete) {
+          newStatus = "Waiting for Unloading";
+      } else if (isAssignmentComplete) {
+          newStatus = "Waiting for Transit";
+      } else if (isClearingComplete) {
+          newStatus = "Waiting for Assignment";
+      } else if (isPlanningComplete) {
+          newStatus = "Waiting for Clearing";
+      } else {
+          newStatus = "Waiting for Planning";
       }
     }
 
     try {
-      const updates = { ...editData };
+      const updates = { ...editData, status: newStatus };
       // If vehicle number is being added for the first time, set actualPickupTime based on actualLiftingTime if provided or current date
       if (
         editData.vehicleNumber &&
@@ -704,10 +719,6 @@ const ShipmentRow = ({
         !updates.actualPickupTime
       ) {
         updates.actualPickupTime = new Date().toISOString().split("T")[0];
-      }
-
-      if (shipment.type === "local" && editData.factoryGateOutTime && !shipment.factoryGateOutTime) {
-        updates.status = "Completed";
       }
 
       const historyEntry = {
@@ -880,7 +891,7 @@ const ShipmentRow = ({
                 "w-1.5 h-1.5 rounded-full",
                 shipment.status === "Completed"
                   ? "bg-green-500"
-                  : shipment.status === "In Transit"
+                  : shipment.status === "Waiting for Unloading" || shipment.status === "Waiting for Transit"
                     ? "bg-blue-500"
                     : "bg-orange-500",
               )}
@@ -1043,14 +1054,14 @@ const ShipmentRow = ({
                   <span className="text-xs font-medium text-zinc-900">{editData.loadingPoint || "Not set"}</span>
                 </div>
                 <textarea
-                  className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                   placeholder="Address"
                   rows={2}
                   value={editData.localAddress || ""}
                   onChange={(e) => setEditData({ ...editData, localAddress: e.target.value })}
                 />
                 <textarea
-                  className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                   placeholder="Shipment Details"
                   rows={2}
                   value={editData.localShipmentDetails || ""}
@@ -1067,7 +1078,7 @@ const ShipmentRow = ({
                   />
                 </div>
                 <textarea
-                  className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                   placeholder="Other Details"
                   rows={2}
                   value={editData.localOtherDetails || ""}
@@ -1114,7 +1125,7 @@ const ShipmentRow = ({
                 {shipment.type !== "local" && (
                   <div className="flex flex-col gap-2">
                     <select
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       value={editData.vesselName || ""}
                       onChange={(e) => {
                         setEditData({
@@ -1148,7 +1159,7 @@ const ShipmentRow = ({
                 
                 <div className="grid grid-cols-1 gap-2">
                   <select
-                    className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     value={editData.companyName || ""}
                     onChange={(e) =>
                       setEditData({
@@ -1170,10 +1181,10 @@ const ShipmentRow = ({
                   <div className="grid grid-cols-1 gap-2">
                     {loadedVessel ? (
                       <select
-                        className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                        className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                         value={editData.blNumber || ""}
                         onChange={(e) => {
-                          setEditData({ ...editData, blNumber: e.target.value, containerNumber: "", containerSizeAndType: "", grossWeight: "" });
+                          setEditData({ ...editData, blNumber: e.target.value, containerNumber: "", containerSizeAndType: "", grossWeight: "", dutyPayDate: "", clearanceDate: "" });
                           if (e.target.value) {
                             setShowContainerPopup(true);
                           }
@@ -1186,7 +1197,7 @@ const ShipmentRow = ({
                       </select>
                     ) : (
                       <input
-                        className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                        className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                         placeholder="BL Number"
                         value={editData.blNumber || ""}
                         onChange={(e) =>
@@ -1208,15 +1219,15 @@ const ShipmentRow = ({
               </div>
             ) : (
               <div className="space-y-1">
-                <p className="text-sm text-zinc-900 font-medium truncate">
+                <p className="text-sm text-zinc-900 font-medium break-all whitespace-normal">
                   {shipment.type === "local" ? "Local Shipment" : (shipment.vesselName || "No Vessel")}
                 </p>
-                <p className="text-[10px] text-zinc-500 truncate">
+                <p className="text-[10px] text-zinc-500 break-all whitespace-normal">
                   Company: {shipment.companyName || "N/A"}
                 </p>
                 {shipment.type !== "local" && (
                   <>
-                    <p className="text-[10px] text-zinc-500 truncate">
+                    <p className="text-[10px] text-zinc-500 break-all whitespace-normal">
                       Arrival: {shipment.arrivalDate || "TBD"}
                     </p>
                     <p className="text-[10px] text-zinc-400">
@@ -1224,7 +1235,7 @@ const ShipmentRow = ({
                     </p>
                   </>
                 )}
-                <p className="text-[10px] text-zinc-500 truncate">
+                <p className="text-[10px] text-zinc-500 break-all whitespace-normal">
                   Loading: {shipment.loadingPoint || "N/A"}
                 </p>
               </div>
@@ -1256,13 +1267,15 @@ const ShipmentRow = ({
                     </button>
                   )}
                   <input
-                    className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     placeholder="Container # *"
                     value={editData.containerNumber || ""}
                     onChange={(e) => {
                       const newContainerNumber = e.target.value;
                       let newSize = editData.containerSizeAndType;
                       let newWeight = editData.grossWeight;
+                      let newDutyPay = editData.dutyPayDate;
+                      let newClearance = editData.clearanceDate;
                       
                       if (editData.vesselName && editData.arrivalDate && editData.blNumber) {
                         const vessel = loadedVessel || vessels?.find(v => v.name === editData.vesselName && (v.arrivalDate === editData.arrivalDate || v.expectedDate === editData.arrivalDate));
@@ -1273,6 +1286,8 @@ const ShipmentRow = ({
                             if (container) {
                               newSize = container.size;
                               newWeight = container.weight;
+                              newDutyPay = container.dutyPayDate || "";
+                              newClearance = container.clearanceDate || "";
                             }
                           }
                         }
@@ -1283,39 +1298,30 @@ const ShipmentRow = ({
                         containerNumber: newContainerNumber,
                         containerSizeAndType: newSize,
                         grossWeight: newWeight,
+                        dutyPayDate: newDutyPay,
+                        clearanceDate: newClearance,
                       });
                     }}
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <select
-                    className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
-                    value={editData.containerSizeAndType || ""}
-                    onChange={(e) =>
-                      setEditData({
-                        ...editData,
-                        containerSizeAndType: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="">Size & Type *</option>
-                    <option value="20FT">20FT</option>
-                    <option value="40FT">40FT</option>
-                    <option value="40HC">40HC</option>
-                  </select>
                   <input
-                    className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
-                    placeholder="Gross Weight *"
+                    readOnly
+                    className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-500 cursor-not-allowed"
+                    value={editData.containerSizeAndType || ""}
+                    placeholder="Size & Type"
+                  />
+                  <input
+                    readOnly
+                    className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-500 cursor-not-allowed"
+                    placeholder="Gross Weight"
                     value={editData.grossWeight || ""}
-                    onChange={(e) =>
-                      setEditData({ ...editData, grossWeight: e.target.value })
-                    }
                   />
                 </div>
 
                 <input
-                  className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                   placeholder="No. of Packages *"
                   type="number"
                   value={editData.numberOfPackages || ""}
@@ -1328,7 +1334,7 @@ const ShipmentRow = ({
                 />
 
                 <textarea
-                  className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-zinc-900"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                   placeholder="Commodity Description *"
                   rows={2}
                   value={editData.commodityDescription || ""}
@@ -1346,12 +1352,10 @@ const ShipmentRow = ({
                       Duty Pay Date
                     </label>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-900"
+                      readOnly
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-500 cursor-not-allowed"
                       type="date"
                       value={editData.dutyPayDate || ""}
-                      onChange={(e) =>
-                        setEditData({ ...editData, dutyPayDate: e.target.value })
-                      }
                     />
                   </div>
                   <div className="space-y-1">
@@ -1359,22 +1363,17 @@ const ShipmentRow = ({
                       Clearance Date
                     </label>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-900"
+                      readOnly
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-500 cursor-not-allowed"
                       type="date"
                       value={editData.clearanceDate || ""}
-                      onChange={(e) =>
-                        setEditData({
-                          ...editData,
-                          clearanceDate: e.target.value,
-                        })
-                      }
                     />
                   </div>
                 </div>
               </div>
             ) : (
               <div className="space-y-1">
-                <p className="text-sm text-zinc-900 font-medium truncate">
+                <p className="text-sm text-zinc-900 font-medium break-all whitespace-normal">
                   {shipment.containerNumber || "N/A"}
                 </p>
                 <p className="text-[10px] text-zinc-500">
@@ -1477,7 +1476,7 @@ const ShipmentRow = ({
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-1">
                   <input
-                    className="bg-white border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-900"
+                    className="bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     placeholder="Vehicle # *"
                     value={editData.vehicleNumber || ""}
                     onChange={(e) =>
@@ -1489,24 +1488,29 @@ const ShipmentRow = ({
                   />
 
                   <select
-                    className="bg-white border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-900"
+                    className="bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     value={editData.vehicleType || ""}
                     onChange={(e) =>
                       setEditData({ ...editData, vehicleType: e.target.value })
                     }
                   >
                     <option value="">Vehicle Type *</option>
-                    <option value="Truck">Truck</option>
-                    <option value="Van">Van</option>
-                    <option value="Scooter">Scooter</option>
-                    <option value="Trailer">Trailer</option>
-                    <option value="Container Carrier">Container Carrier</option>
+                    <option value="20 FT Trailer">20 FT Trailer</option>
+                    <option value="40 FT Trailer">40 FT Trailer</option>
+                    <option value="40 FT High Cube Containerized">40 FT High Cube Containerized</option>
+                    <option value="45 FT Containerized">45 FT Containerized</option>
+                    <option value="40 FT Skeleton Trailer">40 FT Skeleton Trailer</option>
+                    <option value="Flat Rack Trailer">Flat Rack Trailer</option>
+                    <option value="17 FT Mazda Truck">17 FT Mazda Truck</option>
+                    <option value="17 FT Containerized">17 FT Containerized</option>
+                    <option value="Shahzore Truck">Shahzore Truck</option>
+                    <option value="Suzuki Pickup">Suzuki Pickup</option>
                   </select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-1">
                   <input
-                    className="bg-white border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-900"
+                    className="bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     placeholder="Driver Name *"
                     value={editData.driverName || ""}
                     onChange={(e) =>
@@ -1515,7 +1519,7 @@ const ShipmentRow = ({
                   />
 
                   <input
-                    className="bg-white border border-zinc-200 rounded px-2 py-1.5 text-[10px] text-zinc-900"
+                    className="bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     placeholder="Driver Phone *"
                     value={editData.driverPhone || ""}
                     onChange={(e) =>
@@ -1561,7 +1565,7 @@ const ShipmentRow = ({
                 </div>
 
                 <input
-                  className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                   placeholder="Live Tracking URL"
                   value={editData.liveTrackingUrl || ""}
                   onChange={(e) =>
@@ -1578,7 +1582,7 @@ const ShipmentRow = ({
                       {shipment.type === "local" ? "Loading Date and Time" : "Actual Lifting Time"}
                     </label>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       type="date"
                       value={editData.actualLiftingTime || ""}
                       onChange={(e) =>
@@ -1594,7 +1598,7 @@ const ShipmentRow = ({
                       {shipment.type === "local" ? "Actual Dispatch Time *" : "Actual Dispatch Time *"}
                     </label>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       type="date"
                       value={editData.actualPickupTime || ""}
                       onChange={(e) =>
@@ -1656,16 +1660,28 @@ const ShipmentRow = ({
                   </p>
                 )}
 
+                {shipment.liveLocation && (
+                  <a 
+                    href={shipment.liveLocation.lat && shipment.liveLocation.lng ? `https://www.google.com/maps?q=${shipment.liveLocation.lat},${shipment.liveLocation.lng}` : '#'}
+                    target="_blank"
+                    className="text-[10px] text-orange-600 font-medium truncate flex items-center gap-1 hover:underline" 
+                    title={shipment.liveLocation.address || `${shipment.liveLocation.lat}, ${shipment.liveLocation.lng}`}
+                  >
+                    <MapPin size={10} /> {shipment.liveLocation.address || `${shipment.liveLocation.lat}, ${shipment.liveLocation.lng}`}
+                    <span className="text-[8px] text-zinc-400 font-normal ml-1">(Live)</span>
+                  </a>
+                )}
+
                 {shipment.liveTrackingUrl ? (
                   <a
                     href={shipment.liveTrackingUrl}
                     target="_blank"
                     className="text-[9px] text-blue-600 underline block flex items-center gap-1"
                   >
-                    <MapPin size={10} /> Live Tracking
+                    <MapPin size={10} /> Live Tracking URL
                   </a>
                 ) : (
-                  <p className="text-[9px] text-zinc-300 italic">No Tracking</p>
+                  !shipment.liveLocation && <p className="text-[9px] text-zinc-300 italic">No Tracking</p>
                 )}
                 <p className="text-[10px] text-blue-600/70">
                   ETA:{" "}
@@ -1823,7 +1839,7 @@ const ShipmentRow = ({
                 {perms.returnLoad === "write" ? (
                   <>
                     <select
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       value={editData.returnWarehouseDetails || ""}
                       onChange={(e) => {
                         const warehouse = e.target.value;
@@ -1842,7 +1858,7 @@ const ShipmentRow = ({
                       <option value="Sukkur Warehouse">Sukkur Warehouse</option>
                     </select>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       placeholder="Destination *"
                       value={editData.returnLoadDestination || ""}
                       onChange={(e) =>
@@ -1854,7 +1870,7 @@ const ShipmentRow = ({
                       disabled // Disabled because it's auto-filled from warehouse
                     />
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       placeholder="Materials (Cartons etc) *"
                       value={editData.returnLoadMaterialDetails || ""}
                       onChange={(e) =>
@@ -1866,7 +1882,7 @@ const ShipmentRow = ({
                     />
 
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       placeholder="Quantity *"
                       value={editData.returnLoadQuantity || ""}
                       onChange={(e) =>
@@ -1879,12 +1895,12 @@ const ShipmentRow = ({
                   </>
                 ) : (
                   <div className="space-y-1">
-                    <p className="text-sm text-zinc-900 font-medium truncate">
+                    <p className="text-sm text-zinc-900 font-medium break-all whitespace-normal">
                       {shipment.returnWarehouseDetails ||
                         shipment.returnLoadDestination ||
                         "None"}
                     </p>
-                    <p className="text-[10px] text-zinc-500 truncate">
+                    <p className="text-[10px] text-zinc-500 break-all whitespace-normal">
                       {shipment.returnLoadMaterialDetails || "-"}
                     </p>
                     <p className="text-[10px] text-purple-500/70">
@@ -1898,7 +1914,7 @@ const ShipmentRow = ({
                   <div className="pt-2 mt-2 border-t border-purple-100 space-y-2">
                     <h5 className="text-[9px] font-mono uppercase tracking-wider text-purple-600">Receiving Details</h5>
                     <select
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       value={editData.returnLoadReceivedStatus || ""}
                       onChange={(e) => setEditData({ ...editData, returnLoadReceivedStatus: e.target.value })}
                     >
@@ -1911,7 +1927,7 @@ const ShipmentRow = ({
                     </label>
                     <input
                       type="date"
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       value={editData.returnLoadReceivedDate || ""}
                       onChange={(e) => setEditData({ ...editData, returnLoadReceivedDate: e.target.value })}
                     />
@@ -1924,12 +1940,12 @@ const ShipmentRow = ({
               </div>
             ) : (
               <div className="space-y-1">
-                <p className="text-sm text-zinc-900 font-medium truncate">
+                <p className="text-sm text-zinc-900 font-medium break-all whitespace-normal">
                   {shipment.returnWarehouseDetails ||
                     shipment.returnLoadDestination ||
                     "None"}
                 </p>
-                <p className="text-[10px] text-zinc-500 truncate">
+                <p className="text-[10px] text-zinc-500 break-all whitespace-normal">
                   {shipment.returnLoadMaterialDetails || "-"}
                 </p>
                 <p className="text-[10px] text-purple-500/70">
@@ -2045,7 +2061,7 @@ const ShipmentRow = ({
                     </button>
                   </div>
                   <input
-                    className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     type="number"
                     value={editData.transportCost || 0}
                     onChange={(e) => updateFinancials('transportCost', e.target.value)}
@@ -2057,7 +2073,7 @@ const ShipmentRow = ({
                       Actual Weight (KG)
                     </label>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       type="number"
                       placeholder="Enter weight in KG"
                       value={editData.actualWeight || ""}
@@ -2076,7 +2092,7 @@ const ShipmentRow = ({
                       Return Load Cost
                     </label>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       type="number"
                       value={editData.returnLoadCost || 0}
                       onChange={(e) => updateFinancials('returnLoadCost', e.target.value)}
@@ -2089,7 +2105,7 @@ const ShipmentRow = ({
                       Clearing
                     </label>
                     <input
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                       type="number"
                       value={editData.clearingCost || 0}
                       onChange={(e) => updateFinancials('clearingCost', e.target.value)}
@@ -2101,7 +2117,7 @@ const ShipmentRow = ({
                     Other Costs
                   </label>
                   <input
-                    className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     type="number"
                     value={editData.otherCosts || 0}
                     onChange={(e) => updateFinancials('otherCosts', e.target.value)}
@@ -2187,7 +2203,7 @@ const ShipmentRow = ({
                         <span className="text-red-500">* (Req. for Complete)</span>
                       </label>
                       <input
-                        className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
+                        className="w-full bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                         type="datetime-local"
                         value={editData.emptyContainerReturnTime || ""}
                         onChange={(e) =>
@@ -2200,7 +2216,7 @@ const ShipmentRow = ({
                     </div>
                     <div className="space-y-1">
                       <label className="text-[8px] uppercase tracking-widest text-zinc-500 font-mono flex items-center gap-1">
-                        EIR Document
+                        EIR Document <span className="text-red-500">* (Req. for Complete)</span>
                       </label>
                       <FileUploader
                         label={
@@ -2218,21 +2234,12 @@ const ShipmentRow = ({
                 )}
                 <div className="space-y-1">
                   <label className="text-[8px] uppercase tracking-widest text-zinc-500 font-mono">
-                    Final Status
+                    System Automatically Managed Status
                   </label>
-                  <select
-                    className="w-full bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900"
-                    value={editData.status}
-                    onChange={(e) =>
-                      setEditData({ ...editData, status: e.target.value })
-                    }
-                  >
-                    <option value="Planning">Planning</option>
-                    <option value="Pending">Pending</option>
-                    <option value="In Transit">In Transit</option>
-                    <option value="Delivered">Delivered</option>
-                    <option value="Completed">Completed</option>
-                  </select>
+                  <div className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-lg px-2 py-1.5 text-[10px] font-medium text-zinc-500 flex items-center justify-between">
+                    <span>{editData.status}</span>
+                    <span className="text-[8px] bg-zinc-200 px-1.5 py-0.5 rounded uppercase tracking-wider">Auto</span>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -2291,7 +2298,7 @@ const ShipmentRow = ({
                   <div className="space-y-1">
                     <label className="text-[10px] text-zinc-600">Incident Type</label>
                     <select
-                      className="w-full bg-white border border-red-200 rounded px-2 py-1.5 text-xs"
+                      className="w-full bg-white border-2 border-red-200 rounded-xl px-2 py-1.5 text-xs font-medium text-red-900 outline-none focus:border-red-500 transition-all shadow-[0_3px_0_rgb(254,202,202)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(220,38,38)]"
                       value={editData.incidentType || ""}
                       onChange={e => setEditData({...editData, incidentType: e.target.value})}
                     >
@@ -2306,7 +2313,7 @@ const ShipmentRow = ({
                     <label className="text-[10px] text-zinc-600">Date & Time</label>
                     <input
                       type="datetime-local"
-                      className="w-full bg-white border border-red-200 rounded px-2 py-1.5 text-xs"
+                      className="w-full bg-white border-2 border-red-200 rounded-xl px-2 py-1.5 text-xs font-medium text-red-900 outline-none focus:border-red-500 transition-all shadow-[0_3px_0_rgb(254,202,202)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(220,38,38)]"
                       value={editData.incidentDate || ""}
                       onChange={e => setEditData({...editData, incidentDate: e.target.value})}
                     />
@@ -2316,7 +2323,7 @@ const ShipmentRow = ({
                   <label className="text-[10px] text-zinc-600">Location</label>
                   <input
                     type="text"
-                    className="w-full bg-white border border-red-200 rounded px-2 py-1.5 text-xs"
+                    className="w-full bg-white border-2 border-red-200 rounded-xl px-2 py-1.5 text-xs font-medium text-red-900 outline-none focus:border-red-500 transition-all shadow-[0_3px_0_rgb(254,202,202)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(220,38,38)]"
                     value={editData.incidentLocation || ""}
                     onChange={e => setEditData({...editData, incidentLocation: e.target.value})}
                   />
@@ -2324,7 +2331,7 @@ const ShipmentRow = ({
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-600">Description</label>
                   <textarea
-                    className="w-full bg-white border border-red-200 rounded px-2 py-1.5 text-xs"
+                    className="w-full bg-white border-2 border-red-200 rounded-xl px-2 py-1.5 text-xs font-medium text-red-900 outline-none focus:border-red-500 transition-all shadow-[0_3px_0_rgb(254,202,202)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(220,38,38)]"
                     rows={2}
                     value={editData.incidentDescription || ""}
                     onChange={e => setEditData({...editData, incidentDescription: e.target.value})}
@@ -2359,7 +2366,7 @@ const ShipmentRow = ({
                     <div className="space-y-1">
                       <label className="text-[10px] text-zinc-600">Insurance Status</label>
                       <select
-                        className="w-full bg-white border border-blue-200 rounded px-2 py-1.5 text-xs"
+                        className="w-full bg-white border-2 border-blue-200 rounded-xl px-2 py-1.5 text-xs font-medium text-blue-900 outline-none focus:border-blue-500 transition-all shadow-[0_3px_0_rgb(191,219,254)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(37,99,235)]"
                         value={editData.insuranceStatus || ""}
                         onChange={e => setEditData({...editData, insuranceStatus: e.target.value})}
                       >
@@ -2375,7 +2382,7 @@ const ShipmentRow = ({
                       <label className="text-[10px] text-zinc-600">Claim Number</label>
                       <input
                         type="text"
-                        className="w-full bg-white border border-blue-200 rounded px-2 py-1.5 text-xs"
+                        className="w-full bg-white border-2 border-blue-200 rounded-xl px-2 py-1.5 text-xs font-medium text-blue-900 outline-none focus:border-blue-500 transition-all shadow-[0_3px_0_rgb(191,219,254)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(37,99,235)]"
                         value={editData.insuranceClaimNumber || ""}
                         onChange={e => setEditData({...editData, insuranceClaimNumber: e.target.value})}
                       />
@@ -2386,7 +2393,7 @@ const ShipmentRow = ({
                       <label className="text-[10px] text-zinc-600">Claim Amount</label>
                       <input
                         type="number"
-                        className="w-full bg-white border border-blue-200 rounded px-2 py-1.5 text-xs"
+                        className="w-full bg-white border-2 border-blue-200 rounded-xl px-2 py-1.5 text-xs font-medium text-blue-900 outline-none focus:border-blue-500 transition-all shadow-[0_3px_0_rgb(191,219,254)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(37,99,235)]"
                         value={editData.insuranceClaimAmount || ""}
                         onChange={e => setEditData({...editData, insuranceClaimAmount: e.target.value})}
                       />
@@ -2395,7 +2402,7 @@ const ShipmentRow = ({
                       <label className="text-[10px] text-zinc-600">Settlement Amount</label>
                       <input
                         type="number"
-                        className="w-full bg-white border border-blue-200 rounded px-2 py-1.5 text-xs"
+                        className="w-full bg-white border-2 border-blue-200 rounded-xl px-2 py-1.5 text-xs font-medium text-blue-900 outline-none focus:border-blue-500 transition-all shadow-[0_3px_0_rgb(191,219,254)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(37,99,235)]"
                         value={editData.insuranceSettlementAmount || ""}
                         onChange={e => setEditData({...editData, insuranceSettlementAmount: e.target.value})}
                       />
@@ -2733,7 +2740,9 @@ const ShipmentRow = ({
                         ...editData,
                         containerNumber: c.containerNumber,
                         containerSizeAndType: c.size,
-                        grossWeight: c.weight
+                        grossWeight: c.weight,
+                        dutyPayDate: c.dutyPayDate || "",
+                        clearanceDate: c.clearanceDate || ""
                       });
                       setShowContainerPopup(false);
                     }}
@@ -2860,7 +2869,7 @@ const DashboardView = ({
     {
       label: "Active Shipments",
       value: filteredShipments.filter(
-        (s) => s.status !== "Delivered" && s.status !== "Completed",
+        (s) => s.status !== "Completed" && s.status !== "Waiting for Completion",
       ).length,
       icon: Truck,
       color: "bg-blue-500",
@@ -2885,7 +2894,7 @@ const DashboardView = ({
     },
     {
       label: "Delivered (MTD)",
-      value: filteredShipments.filter((s) => s.status === "Delivered").length,
+      value: filteredShipments.filter((s) => s.status === "Waiting for Completion" || s.status === "Completed").length,
       icon: CheckCircle2,
       color: "bg-green-500",
       trend: "+18%",
@@ -2906,7 +2915,7 @@ const DashboardView = ({
   const containerStats = useMemo(() => {
     const counts = { '20ft': 0, '40ft': 0, '40HC': 0, 'Other': 0 };
     filteredShipments.forEach(s => {
-      if (s.status === 'Completed' || s.status === 'Delivered') return;
+      if (s.status === 'Completed' || s.status === 'Waiting for Completion') return;
       const size = s.containerSizeAndType || '';
       if (size.includes('20')) counts['20ft']++;
       else if (size === '40ft' || size === '40FT') counts['40ft']++;
@@ -2946,7 +2955,7 @@ const DashboardView = ({
   return (
     <div className="space-y-8">
       {/* 3D Global Logistics Map */}
-      <Earth3DTrucks />
+      <LiveTrackingMap shipments={shipments} />
 
       {/* Analytics Header & Quick Actions */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
@@ -3232,7 +3241,7 @@ const DashboardView = ({
               </h3>
             </div>
             <div className="space-y-4">
-              {filteredShipments.filter(s => s.status === 'In Transit' || s.status === 'Planning').slice(0, 4).map(s => {
+              {filteredShipments.filter(s => s.status && !s.status.includes('Completed') && !s.status.includes('Return')).slice(0, 4).map(s => {
                 let progress = 10;
                 if (s.actualLiftingTime || s.actualPickupTime) progress = 40;
                 if (s.factoryGateInTime) progress = 60;
@@ -3258,7 +3267,7 @@ const DashboardView = ({
                   </div>
                 );
               })}
-              {filteredShipments.filter(s => s.status === 'In Transit' || s.status === 'Planning').length === 0 && (
+              {filteredShipments.filter(s => s.status && !s.status.includes('Completed') && !s.status.includes('Return')).length === 0 && (
                 <div className="text-center py-4 text-zinc-500 text-sm">No active routes.</div>
               )}
             </div>
@@ -3402,7 +3411,7 @@ const DashboardView = ({
                   {filteredShipments
                     .filter(
                       (s) =>
-                        s.status !== "Delivered" && s.status !== "Completed",
+                        s.status !== "Completed" && s.status !== "Waiting for Completion",
                     )
                     .map((s) => (
                       <div
@@ -3439,7 +3448,7 @@ const DashboardView = ({
                       </div>
                     ))}
                   {filteredShipments.filter(
-                    (s) => s.status !== "Delivered" && s.status !== "Completed",
+                    (s) => s.status !== "Completed" && s.status !== "Waiting for Completion",
                   ).length === 0 && (
                     <p className="text-center text-zinc-400 py-8">
                       No active shipments found.
@@ -3538,7 +3547,7 @@ const DashboardView = ({
               {selectedStat === "Delivered (MTD)" && (
                 <div className="space-y-4">
                   {filteredShipments
-                    .filter((s) => s.status === "Delivered")
+                    .filter((s) => s.status === "Waiting for Completion" || s.status === "Completed")
                     .map((s) => (
                       <div
                         key={s.id}
@@ -3577,7 +3586,7 @@ const DashboardView = ({
                         </div>
                       </div>
                     ))}
-                  {filteredShipments.filter((s) => s.status === "Delivered")
+                  {filteredShipments.filter((s) => s.status === "Waiting for Completion" || s.status === "Completed")
                     .length === 0 && (
                     <p className="text-center text-zinc-400 py-8">
                       No delivered shipments recorded this month.
@@ -3731,7 +3740,7 @@ const DashboardView = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {filteredShipments.filter(s => s.status !== "Delivered" && s.status !== "Completed").map(s => {
+              {filteredShipments.filter(s => s.status !== "Completed" && s.status !== "Waiting for Completion").map(s => {
                 const isClearingDone = !!s.clearanceDate;
                 const isOutboundDone = !!(s.actualLiftingTime || s.actualPickupTime);
                 const isUnloadingDone = !!(s.unloadingDate || s.factoryGateOutTime);
@@ -3766,7 +3775,7 @@ const DashboardView = ({
                   </tr>
                 );
               })}
-              {filteredShipments.filter(s => s.status !== "Delivered" && s.status !== "Completed").length === 0 && (
+              {filteredShipments.filter(s => s.status !== "Completed" && s.status !== "Waiting for Completion").length === 0 && (
                 <tr>
                   <td colSpan="6" className="py-8 text-center text-sm text-zinc-500">No active shipments to track.</td>
                 </tr>
@@ -3785,6 +3794,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
   const [vesselToDelete, setVesselToDelete] = useState(null);
   const [expandedVessel, setExpandedVessel] = useState(null);
   const [expandedBL, setExpandedBL] = useState(null);
+  const [containerDatesModal, setContainerDatesModal] = useState(null);
   
   const [newVessel, setNewVessel] = useState({
     name: "",
@@ -3794,7 +3804,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
     status: "Expected",
   });
   const [bls, setBls] = useState([{ id: "bl-1", blNumber: "" }]);
-  const [containers, setContainers] = useState([{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "" }]);
+  const [containers, setContainers] = useState([{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "", dutyPayDate: "", clearanceDate: "" }]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -3810,7 +3820,9 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
           .map(c => ({
             containerNumber: c.containerNumber,
             size: c.size,
-            weight: c.weight
+            weight: c.weight,
+            dutyPayDate: c.dutyPayDate || "",
+            clearanceDate: c.clearanceDate || ""
           }));
         totalContainers += blContainers.length;
         return {
@@ -3839,6 +3851,45 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
               .map(docSnap => deleteDoc(doc(db, "shipments", docSnap.id)));
               
             await Promise.all(deletePromises);
+          }
+
+          // Sync updated fields to remaining shipments
+          const shipmentsQuery2 = query(
+            collection(db, "shipments"), 
+            where("vesselName", "==", oldVessel.name)
+          );
+          const shipmentsSnapshot2 = await getDocs(shipmentsQuery2);
+          const updatePromises = [];
+          
+          shipmentsSnapshot2.docs.forEach(docSnap => {
+            const shipmentData = docSnap.data();
+            const matchingBl = processedBls.find(b => b.blNumber === shipmentData.blNumber);
+            if (matchingBl) {
+              const matchingContainer = matchingBl.containers.find(c => c.containerNumber === shipmentData.containerNumber);
+              if (matchingContainer) {
+                if (shipmentData.dutyPayDate !== matchingContainer.dutyPayDate || 
+                    shipmentData.clearanceDate !== matchingContainer.clearanceDate ||
+                    shipmentData.grossWeight !== matchingContainer.weight ||
+                    shipmentData.containerSizeAndType !== matchingContainer.size ||
+                    shipmentData.vesselName !== newVessel.name) {
+                  const updates = {
+                    dutyPayDate: matchingContainer.dutyPayDate || "",
+                    clearanceDate: matchingContainer.clearanceDate || "",
+                    grossWeight: matchingContainer.weight || "",
+                    containerSizeAndType: matchingContainer.size || "",
+                    updatedAt: Timestamp.now()
+                  };
+                  if (shipmentData.vesselName !== newVessel.name) {
+                    updates.vesselName = newVessel.name;
+                  }
+                  updatePromises.push(updateDoc(doc(db, "shipments", docSnap.id), updates));
+                }
+              }
+            }
+          });
+          
+          if (updatePromises.length > 0) {
+             await Promise.all(updatePromises);
           }
         }
       }
@@ -3870,7 +3921,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
       setEditingVesselId(null);
       setNewVessel({ name: "", arrivalDate: "", clearingAgent: profile?.name || "", loadingPoint: "", status: "Expected" });
       setBls([{ id: "bl-1", blNumber: "" }]);
-      setContainers([{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "" }]);
+      setContainers([{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "", dutyPayDate: "", clearanceDate: "" }]);
     } catch (error) {
       handleFirestoreError(error, isEditing ? OperationType.UPDATE : OperationType.CREATE, "vessels");
     }
@@ -3900,7 +3951,9 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
               blId: blId,
               containerNumber: typeof c === 'string' ? c : c.containerNumber,
               size: typeof c === 'string' ? "20" : (c.size || "20"),
-              weight: typeof c === 'string' ? "" : (c.weight || "")
+              weight: typeof c === 'string' ? "" : (c.weight || ""),
+              dutyPayDate: typeof c === 'string' ? "" : (c.dutyPayDate || ""),
+              clearanceDate: typeof c === 'string' ? "" : (c.clearanceDate || "")
             });
           });
         }
@@ -3908,8 +3961,51 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
     }
     
     setBls(initialBls.length > 0 ? initialBls : [{ id: "bl-1", blNumber: "" }]);
-    setContainers(initialContainers.length > 0 ? initialContainers : [{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "" }]);
+    setContainers(initialContainers.length > 0 ? initialContainers : [{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "", dutyPayDate: "", clearanceDate: "" }]);
     setIsAdding(true);
+  };
+
+  const handleSaveContainerDates = async (e) => {
+    e.preventDefault();
+    if (!containerDatesModal) return;
+    try {
+      const vessel = vessels.find(v => v.id === containerDatesModal.vesselId);
+      if (!vessel) return;
+      
+      const newVessel = JSON.parse(JSON.stringify(vessel)); 
+      if (!newVessel.bls || !newVessel.bls[containerDatesModal.blIndex]) return;
+      
+      const targetContainer = newVessel.bls[containerDatesModal.blIndex].containers[containerDatesModal.cIndex];
+      targetContainer.dutyPayDate = containerDatesModal.dutyPayDate;
+      targetContainer.clearanceDate = containerDatesModal.clearanceDate;
+      
+      await updateDoc(doc(db, "vessels", vessel.id), {
+        bls: newVessel.bls,
+        updatedAt: Timestamp.now()
+      });
+      
+      const shipmentsQuery = query(
+        collection(db, "shipments"), 
+        where("vesselName", "==", vessel.name),
+        where("blNumber", "==", newVessel.bls[containerDatesModal.blIndex].blNumber),
+        where("containerNumber", "==", targetContainer.containerNumber)
+      );
+      const shipmentsSnapshot = await getDocs(shipmentsQuery);
+      if (!shipmentsSnapshot.empty) {
+        const updatePromises = shipmentsSnapshot.docs.map(docSnap => 
+          updateDoc(doc(db, "shipments", docSnap.id), {
+            dutyPayDate: containerDatesModal.dutyPayDate,
+            clearanceDate: containerDatesModal.clearanceDate,
+            updatedAt: Timestamp.now()
+          })
+        );
+        await Promise.all(updatePromises);
+      }
+      
+      setContainerDatesModal(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `vessels/${containerDatesModal.vesselId}`);
+    }
   };
 
   const handleDeleteVessel = async (vessel, e) => {
@@ -3956,7 +4052,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
           >
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <input
-                className="bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 placeholder="Vessel Name"
                 value={newVessel.name || ""}
                 onChange={(e) =>
@@ -3966,7 +4062,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
               />
 
               <input
-                className="bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 placeholder="Arrival Date"
                 type="date"
                 value={newVessel.arrivalDate || ""}
@@ -3976,7 +4072,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
               />
 
               <input
-                className="bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 placeholder="Clearing Agent Name"
                 value={newVessel.clearingAgent || ""}
                 onChange={(e) =>
@@ -4010,7 +4106,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                       <tr key={bl.id}>
                         <td className="px-4 py-2">
                           <input
-                            className="bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-zinc-900 focus:border-orange-500 outline-none w-full"
+                            className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-1.5 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                             placeholder="BL Number"
                             value={bl.blNumber}
                             onChange={(e) => {
@@ -4048,7 +4144,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                 <h4 className="text-sm font-medium text-zinc-900">Container Details</h4>
                 <button
                   type="button"
-                  onClick={() => setContainers([...containers, { id: `c-${Date.now()}`, blId: bls[0]?.id || "", containerNumber: "", size: "20", weight: "" }])}
+                  onClick={() => setContainers([...containers, { id: `c-${Date.now()}`, blId: bls[0]?.id || "", containerNumber: "", size: "20", weight: "", dutyPayDate: "", clearanceDate: "" }])}
                   className="text-xs text-orange-600 hover:underline font-medium"
                 >
                   + Add Container
@@ -4070,7 +4166,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                       <tr key={container.id}>
                         <td className="px-4 py-2">
                           <input
-                            className="bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-zinc-900 focus:border-orange-500 outline-none w-full"
+                            className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-1.5 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                             placeholder="Container No"
                             value={container.containerNumber}
                             onChange={(e) => {
@@ -4083,7 +4179,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                         </td>
                         <td className="px-4 py-2">
                           <select
-                            className="bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-zinc-900 focus:border-orange-500 outline-none w-full"
+                            className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-1.5 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                             value={container.size}
                             onChange={(e) => {
                               const updated = [...containers];
@@ -4098,7 +4194,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                         </td>
                         <td className="px-4 py-2">
                           <input
-                            className="bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-zinc-900 focus:border-orange-500 outline-none w-full"
+                            className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-1.5 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                             placeholder="Weight"
                             value={container.weight}
                             onChange={(e) => {
@@ -4110,7 +4206,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                         </td>
                         <td className="px-4 py-2">
                           <select
-                            className="bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-zinc-900 focus:border-orange-500 outline-none w-full"
+                            className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-1.5 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                             value={container.blId}
                             onChange={(e) => {
                               const updated = [...containers];
@@ -4156,7 +4252,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                   setEditingVesselId(null);
                   setNewVessel({ name: "", company: "", arrivalDate: "", clearingAgent: profile?.name || "", status: "Expected" });
                   setBls([{ id: "bl-1", blNumber: "" }]);
-                  setContainers([{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "" }]);
+                  setContainers([{ id: "c-1", blId: "bl-1", containerNumber: "", size: "20", weight: "", dutyPayDate: "", clearanceDate: "" }]);
                 }}
                 className="px-6 py-2 bg-zinc-100 text-zinc-600 rounded font-medium hover:bg-zinc-200 transition-colors"
               >
@@ -4305,20 +4401,60 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                                     </div>
                                     {isBlExpanded && (
                                       <div className="border-t border-zinc-100 bg-zinc-50 p-4">
-                                        {blShipments.length > 0 ? (
+                                        {bl.containers && bl.containers.length > 0 ? (
                                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                            {blShipments.map(shipment => (
-                                              <div key={shipment.id} className="bg-white border border-zinc-200 p-3 rounded-md shadow-sm flex flex-col gap-1">
-                                                <div className="flex justify-between items-start">
-                                                  <span className="font-bold text-sm text-zinc-900">{shipment.containerNumber}</span>
-                                                  <span className="text-[10px] uppercase px-1.5 py-0.5 bg-zinc-100 text-zinc-600 rounded font-bold">{shipment.status}</span>
+                                            {bl.containers.map((container, cIdx) => {
+                                              const activeShipment = shipments.find(s => s.vesselName === vessel.name && s.blNumber === bl.blNumber && s.containerNumber === container.containerNumber);
+                                              return (
+                                                <div 
+                                                  key={cIdx} 
+                                                  className="bg-white border border-zinc-200 p-3 rounded-md shadow-sm flex flex-col gap-1 cursor-pointer hover:border-orange-500 hover:shadow-md transition-all group relative"
+                                                  onClick={() => setContainerDatesModal({
+                                                    vesselId: vessel.id,
+                                                    vesselName: vessel.name,
+                                                    blIndex: idx,
+                                                    blNumber: bl.blNumber,
+                                                    cIndex: cIdx,
+                                                    containerNumber: container.containerNumber,
+                                                    dutyPayDate: container.dutyPayDate || "",
+                                                    clearanceDate: container.clearanceDate || ""
+                                                  })}
+                                                >
+                                                  <div className="absolute inset-0 bg-orange-50/0 group-hover:bg-orange-50/50 pointer-events-none transition-colors rounded-md" />
+                                                  <div className="flex justify-between items-start relative z-10">
+                                                    <span className="font-bold text-sm text-zinc-900">{container.containerNumber || "Unknown"}</span>
+                                                    <span className={cn(
+                                                      "text-[10px] uppercase px-1.5 py-0.5 rounded font-bold",
+                                                      activeShipment
+                                                        ? (activeShipment.status.includes("Completed") ? "bg-green-100 text-green-700" :
+                                                           (activeShipment.status.includes("Transit") || activeShipment.status.includes("Unloading")) ? "bg-blue-100 text-blue-700" :
+                                                           "bg-orange-100 text-orange-700")
+                                                        : "bg-zinc-100 text-zinc-600"
+                                                    )}>
+                                                      {activeShipment ? activeShipment.status : "Waiting for Planning"}
+                                                    </span>
+                                                  </div>
+                                                  <span className="text-[10px] font-mono text-zinc-400">
+                                                    {activeShipment ? `ID: ${activeShipment.trackingId}` : `Size: ${container.size}`}
+                                                  </span>
+                                                  {(container.dutyPayDate || container.clearanceDate) && !activeShipment && (
+                                                    <div className="text-[9px] text-orange-600 mt-1 flex gap-2">
+                                                      {container.dutyPayDate && <span>Duty: {container.dutyPayDate}</span>}
+                                                      {container.clearanceDate && <span>Cleared: {container.clearanceDate}</span>}
+                                                    </div>
+                                                  )}
+                                                  {(activeShipment && (activeShipment.dutyPayDate || activeShipment.clearanceDate)) && (
+                                                    <div className="text-[9px] text-orange-600 mt-1 flex gap-2">
+                                                      {activeShipment.dutyPayDate && <span>Duty: {activeShipment.dutyPayDate}</span>}
+                                                      {activeShipment.clearanceDate && <span>Cleared: {activeShipment.clearanceDate}</span>}
+                                                    </div>
+                                                  )}
                                                 </div>
-                                                <span className="text-[10px] font-mono text-zinc-400">ID: {shipment.trackingId}</span>
-                                              </div>
-                                            ))}
+                                              );
+                                            })}
                                           </div>
                                         ) : (
-                                          <p className="text-xs text-zinc-500 italic">No shipments found for this BL.</p>
+                                          <p className="text-xs text-zinc-500 italic">No containers found for this BL.</p>
                                         )}
                                       </div>
                                     )}
@@ -4339,6 +4475,66 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
           </tbody>
         </table>
       </div>
+
+      {containerDatesModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <form onSubmit={handleSaveContainerDates} className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+            <h3 className="text-xl font-bold text-zinc-900 border-b border-zinc-100 pb-2">
+              Container Customs Info
+            </h3>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Container Number</label>
+                  <div className="font-mono text-sm text-zinc-800 bg-zinc-50 px-3 py-1.5 rounded-lg border border-zinc-200 shadow-inner">
+                    {containerDatesModal.containerNumber}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">BL Number</label>
+                  <div className="font-mono text-sm text-zinc-800 bg-zinc-50 px-3 py-1.5 rounded-lg border border-zinc-200 shadow-inner">
+                    {containerDatesModal.blNumber}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-zinc-700">Duty Pay Date</label>
+                <input
+                  type="date"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2.5 text-sm font-bold text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
+                  value={containerDatesModal.dutyPayDate}
+                  onChange={(e) => setContainerDatesModal({ ...containerDatesModal, dutyPayDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-bold text-zinc-700">Clearance Date</label>
+                <input
+                  type="date"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2.5 text-sm font-bold text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
+                  value={containerDatesModal.clearanceDate}
+                  onChange={(e) => setContainerDatesModal({ ...containerDatesModal, clearanceDate: e.target.value })}
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-3 pt-4 mt-2">
+              <button
+                type="button"
+                onClick={() => setContainerDatesModal(null)}
+                className="px-5 py-2 font-bold text-zinc-600 bg-zinc-100 rounded-xl hover:bg-zinc-200 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-6 py-2 font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-xl shadow-[0_4px_0_rgb(194,65,12)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(194,65,12)] active:translate-y-0 active:shadow-[0_0px_0_rgb(194,65,12)] transition-all"
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
@@ -4643,12 +4839,14 @@ function ShipmentsView({
   rolePermissions,
   users,
   companiesData,
+  formConfig,
+  globalSearchQuery,
 }) {
   const [isAdding, setIsAdding] = useState(false);
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState("all");
   const [newShipment, setNewShipment] = useState({
     trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-    status: "Planning",
+    status: "Waiting for Planning",
     type: "vessel",
     vesselName: "",
     arrivalDate: "",
@@ -4710,9 +4908,11 @@ function ShipmentsView({
           containerNumber: item.container.containerNumber,
           containerSizeAndType: item.container.size,
           grossWeight: item.container.weight,
+          dutyPayDate: item.container.dutyPayDate || "",
+          clearanceDate: item.container.clearanceDate || "",
           loadingPoint: loadingPoint,
           unloadingPoint: unloadingPoint,
-          status: "Planning",
+          status: "Waiting for Planning",
           history: [historyEntry],
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
@@ -4732,7 +4932,7 @@ function ShipmentsView({
       setSelectedContainers([]);
       setNewShipment({
         trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-        status: "Planning",
+        status: "Waiting for Planning",
         type: "vessel",
         vesselName: "",
         arrivalDate: "",
@@ -4771,7 +4971,7 @@ function ShipmentsView({
         type: "local",
         loadingPoint: loadingPoint,
         unloadingPoint: unloadingPoint,
-        status: "Planning",
+        status: "Waiting for Planning",
         history: [historyEntry],
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
@@ -4788,7 +4988,7 @@ function ShipmentsView({
       setIsAdding(false);
       setNewShipment({
         trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-        status: "Planning",
+        status: "Waiting for Planning",
         type: "vessel",
         vesselName: "",
         arrivalDate: "",
@@ -4829,9 +5029,11 @@ function ShipmentsView({
               blNumber: row["BL Number"] || "",
               containerNumber: row["Container Number"] || "",
               containerSizeAndType: row["Size/Type"] || "",
+              dutyPayDate: row["Duty Pay Date"] || "",
+              clearanceDate: row["Clearance Date"] || "",
               loadingPoint: row["Loading Point"] || "",
               unloadingPoint: row["Unloading Point"] || "",
-              status: "Planning",
+              status: "Waiting for Planning",
               history: [historyEntry],
               createdAt: Timestamp.now(),
               updatedAt: Timestamp.now(),
@@ -4852,6 +5054,24 @@ function ShipmentsView({
   };
 
   const filteredShipments = shipments.filter((shipment) => {
+    if (globalSearchQuery && globalSearchQuery.trim() !== "") {
+      const q = globalSearchQuery.toLowerCase().trim();
+      const match = (
+        (shipment.trackingId || "").toLowerCase().includes(q) ||
+        (shipment.companyName || "").toLowerCase().includes(q) ||
+        (shipment.vesselName || "").toLowerCase().includes(q) ||
+        (shipment.blNumber || "").toLowerCase().includes(q) ||
+        (shipment.containerNumber || "").toLowerCase().includes(q) ||
+        (shipment.loadingPoint || "").toLowerCase().includes(q) ||
+        (shipment.unloadingPoint || "").toLowerCase().includes(q) ||
+        (shipment.vehicleNumber || "").toLowerCase().includes(q) ||
+        (shipment.transporterName || "").toLowerCase().includes(q) ||
+        (shipment.type || "").toLowerCase().includes(q) ||
+        (shipment.status || "").toLowerCase().includes(q)
+      );
+      if (!match) return false;
+    }
+
     if (selectedCompanyFilter !== "all" && shipment.companyName !== selectedCompanyFilter) {
       return false;
     }
@@ -5006,7 +5226,7 @@ function ShipmentsView({
             <div>
               <label className="block text-xs font-medium text-zinc-700 mb-1">Shipment Type</label>
               <select
-                className="w-full bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 value={newShipment.type}
                 onChange={(e) => setNewShipment({ ...newShipment, type: e.target.value })}
               >
@@ -5017,7 +5237,7 @@ function ShipmentsView({
             <div>
               <label className="block text-xs font-medium text-zinc-700 mb-1">Company *</label>
               <select
-                className="w-full bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 value={newShipment.companyName || ""}
                 onChange={(e) =>
                   setNewShipment({
@@ -5064,7 +5284,7 @@ function ShipmentsView({
                 <div>
                   <label className="block text-xs font-medium text-zinc-700 mb-1">Vessel Name</label>
                   <select
-                    className="w-full bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     value={newShipment.vesselName || ""}
                     onChange={(e) =>
                       setNewShipment({
@@ -5085,7 +5305,7 @@ function ShipmentsView({
                 <div>
                   <label className="block text-xs font-medium text-zinc-700 mb-1">Arrival Date</label>
                   <input
-                    className="w-full bg-white border border-zinc-200 rounded px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     placeholder="Arrival Date"
                     type="date"
                     value={newShipment.arrivalDate || ""}
@@ -5218,7 +5438,7 @@ function ShipmentsView({
                 setIsAdding(false);
                 setNewShipment({
                   trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-                  status: "Planning",
+                  status: "Waiting for Planning",
                   type: "vessel",
                   vesselName: "",
                   arrivalDate: "",
@@ -5297,6 +5517,7 @@ function ShipmentsView({
             rolePermissions={rolePermissions}
             users={users}
             companiesData={companiesData}
+            formConfig={formConfig}
           />
         ))}
       </div>
@@ -5397,7 +5618,7 @@ const PermissionsView = ({ rolePermissions }) => {
                       onChange={(e) =>
                         handlePermissionChange(role, section, e.target.value)
                       }
-                      className="bg-white border border-zinc-200 rounded px-2 py-1 text-[10px] text-zinc-900 focus:border-orange-500 outline-none"
+                      className="bg-white border-2 border-zinc-200 rounded-lg px-2 py-1 text-[10px] font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
                     >
                       <option value="none">None</option>
                       <option value="read">Read</option>
@@ -5509,10 +5730,14 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [invoiceDetails, setInvoiceDetails] = useState({
     invoiceNumber: `INV-${Math.floor(Math.random() * 100000)}`,
+    invoiceType: 'simple',
     invoiceDate: new Date().toISOString().split('T')[0],
     dueDate: "",
+    ledger: "",
     salesTaxPercent: 0,
     withholdingTaxAmount: 0,
+    fuelDeductionAmount: 0,
+    detentionDeductionAmount: 0,
     bankName: "",
     accountTitle: "",
     accountNumber: "",
@@ -5569,7 +5794,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
     (s) => s.status === "Completed",
   ).length;
   const inTransitShipments = filteredShipments.filter(
-    (s) => s.status === "In Transit",
+    (s) => s.status === "Waiting for Unloading" || s.status === "Waiting for Transit",
   ).length;
   const totalCost = filteredShipments.reduce(
     (acc, s) => acc + (s.totalCost || 0),
@@ -5614,17 +5839,22 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
     };
 
     const subtotal = filteredShipments.reduce((acc, s) => acc + (s.totalCost || 0), 0);
-    const salesTaxAmount = subtotal * (parseFloat(invoiceDetails.salesTaxPercent) || 0) / 100;
     const withholdingTaxAmount = parseFloat(invoiceDetails.withholdingTaxAmount) || 0;
-    const grandTotal = subtotal + salesTaxAmount - withholdingTaxAmount;
+    const fuelDeductionAmount = parseFloat(invoiceDetails.fuelDeductionAmount) || 0;
+    const detentionDeductionAmount = parseFloat(invoiceDetails.detentionDeductionAmount) || 0;
+    
+    const amountAfterDeductions = subtotal - withholdingTaxAmount - fuelDeductionAmount - detentionDeductionAmount;
+    const salesTaxAmount = amountAfterDeductions * (parseFloat(invoiceDetails.salesTaxPercent) || 0) / 100;
+    const grandTotal = amountAfterDeductions + salesTaxAmount;
 
     let tableRowsHtml = "";
     filteredShipments.forEach((s) => {
+      const isDuplicateStatus = s.invoiced === true;
       const shipmentDate = s.createdAt?.seconds ? new Date(s.createdAt.seconds * 1000).toLocaleDateString() : new Date().toLocaleDateString();
       tableRowsHtml += `
         <tr>
           <td>${shipmentDate}</td>
-          <td>${s.trackingId}</td>
+          <td>${s.trackingId}${isDuplicateStatus ? '<br/><span style="color:#c2410c; font-weight:bold;">(DUPLICATE)</span>' : ''}</td>
           <td>${s.companyName || "N/A"}</td>
           <td>${s.transporterName || "N/A"}</td>
           <td>${s.vehicleNumber || "N/A"}</td>
@@ -5718,7 +5948,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
               ${issuer.logoUrl ? `<img src="${issuer.logoUrl}" alt="Logo" />` : ''}
             </div>
             <div class="invoice-details">
-              <h2>INVOICE</h2>
+              <h2>${invoiceDetails.invoiceType === 'sales_tax' ? 'SALES TAX INVOICE' : 'INVOICE'}</h2>
               <div class="meta-grid">
                 <div class="meta-label">Invoice Number</div>
                 <div class="meta-value">${invoiceDetails.invoiceNumber}</div>
@@ -5727,6 +5957,10 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                 ${invoiceDetails.dueDate ? `
                 <div class="meta-label">Due Date</div>
                 <div class="meta-value">${new Date(invoiceDetails.dueDate).toLocaleDateString()}</div>
+                ` : ''}
+                ${invoiceDetails.ledger ? `
+                <div class="meta-label">Ledger</div>
+                <div class="meta-value">${invoiceDetails.ledger}</div>
                 ` : ''}
               </div>
             </div>
@@ -5787,17 +6021,31 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                 <span class="cost">PKR ${subtotal.toLocaleString()}</span>
               </div>
               
-              ${salesTaxAmount > 0 ? `
-              <div class="total-row tax-row">
-                <span>Sales Tax (${invoiceDetails.salesTaxPercent}%)</span>
-                <span class="cost">PKR ${salesTaxAmount.toLocaleString()}</span>
-              </div>
-              ` : ''}
-              
               ${withholdingTaxAmount > 0 ? `
               <div class="total-row tax-row">
                 <span>Withholding Tax</span>
                 <span class="cost">- PKR ${withholdingTaxAmount.toLocaleString()}</span>
+              </div>
+              ` : ''}
+
+              ${fuelDeductionAmount > 0 ? `
+              <div class="total-row tax-row">
+                <span>Fuel Deduction</span>
+                <span class="cost">- PKR ${fuelDeductionAmount.toLocaleString()}</span>
+              </div>
+              ` : ''}
+
+              ${detentionDeductionAmount > 0 ? `
+              <div class="total-row tax-row">
+                <span>Detention Deduction</span>
+                <span class="cost">- PKR ${detentionDeductionAmount.toLocaleString()}</span>
+              </div>
+              ` : ''}
+
+              ${salesTaxAmount > 0 ? `
+              <div class="total-row tax-row">
+                <span>Sales Tax (${invoiceDetails.salesTaxPercent}%)</span>
+                <span class="cost">PKR ${salesTaxAmount.toLocaleString()}</span>
               </div>
               ` : ''}
 
@@ -5867,24 +6115,44 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
           invoiceDueDate: invoiceDetails.dueDate || null,
           invoiceSalesTaxPercent: parseFloat(invoiceDetails.salesTaxPercent) || 0,
           invoiceWithholdingTaxAmount: parseFloat(invoiceDetails.withholdingTaxAmount) || 0,
+          invoiceFuelDeductionAmount: parseFloat(invoiceDetails.fuelDeductionAmount) || 0,
+          invoiceDetentionDeductionAmount: parseFloat(invoiceDetails.detentionDeductionAmount) || 0,
           updatedAt: serverTimestamp()
         })
       );
       
-      const customerNameObj = companiesData?.customers?.find(c => c.id === invoiceDetails.customer);
-      updatePromises.push(setDoc(doc(db, "invoices", invoiceDetails.invoiceNumber), {
+      const invRef = doc(db, "invoices", invoiceDetails.invoiceNumber);
+      const invSnap = await getDoc(invRef);
+      const baseInvoiceData = {
         id: invoiceDetails.invoiceNumber,
-        type: "bulk",
+        type: invoiceDetails.invoiceType || "simple",
+        isBulk: true,
         invoiceDate: invoiceDetails.invoiceDate || new Date().toISOString().split('T')[0],
         dueDate: invoiceDetails.dueDate || null,
-        customerName: customerNameObj ? customerNameObj.name : "N/A",
+        ledger: invoiceDetails.ledger || "",
+        customerName: customer.name,
         totalAmount: grandTotal,
+        subtotal: subtotal,
+        salesTaxAmount: salesTaxAmount,
+        withholdingTaxAmount: withholdingTaxAmount,
+        fuelDeductionAmount: fuelDeductionAmount,
+        detentionDeductionAmount: detentionDeductionAmount,
         shipmentIds: filteredShipments.map(s => s.id),
-        paymentStatus: "Pending",
-        payments: [],
-        createdAt: serverTimestamp(),
-        createdBy: profile?.uid
-      }));
+        invoiceHtml: content,
+        updatedAt: serverTimestamp()
+      };
+
+      if (invSnap.exists()) {
+        updatePromises.push(updateDoc(invRef, baseInvoiceData));
+      } else {
+        updatePromises.push(setDoc(invRef, {
+          ...baseInvoiceData,
+          paymentStatus: "Pending",
+          payments: [],
+          createdAt: serverTimestamp(),
+          createdBy: profile?.uid
+        }));
+      }
 
       await Promise.all(updatePromises);
       setShowInvoiceModal(false);
@@ -5996,7 +6264,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                   <td>${s.loadingPoint || "N/A"}</td>
                   <td>${s.unloadingPoint || "N/A"}</td>
                   <td>
-                    <span class="status ${s.status === "Completed" ? "status-completed" : s.status === "In Transit" ? "status-transit" : "status-pending"}">
+                    <span class="status ${s.status === "Completed" ? "status-completed" : s.status === "Waiting for Unloading" ? "status-transit" : "status-pending"}">
                       ${s.status}
                     </span>
                   </td>
@@ -6321,7 +6589,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                       "text-[10px] uppercase font-bold px-2 py-0.5 rounded",
                       s.status === "Completed"
                         ? "bg-green-100 text-green-700"
-                        : s.status === "In Transit"
+                        : s.status === "Waiting for Unloading" || s.status === "Waiting for Transit"
                           ? "bg-blue-100 text-blue-700"
                           : "bg-orange-100 text-orange-700",
                     )}
@@ -6368,7 +6636,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                     <select
                       value={selectedIssuerId}
                       onChange={(e) => setSelectedIssuerId(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     >
                       <option value="">Select Issuer...</option>
                       {companiesData.filter(c => c.type === 'vital company').map(c => (
@@ -6383,7 +6651,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                   <select
                     value={selectedCustomerId}
                     onChange={(e) => setSelectedCustomerId(e.target.value)}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                   >
                     <option value="">Select Customer...</option>
                     {profile?.role === "transporter" ? (
@@ -6401,14 +6669,25 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-widest text-zinc-500 mb-1">Invoice Type</label>
+                  <select
+                    value={invoiceDetails.invoiceType}
+                    onChange={e => setInvoiceDetails({...invoiceDetails, invoiceType: e.target.value})}
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
+                  >
+                    <option value="simple">Simple Invoice</option>
+                    <option value="sales_tax">Sales Tax Invoice</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs font-mono uppercase tracking-widest text-zinc-500 mb-1">Invoice Number</label>
                   <input
                     type="text"
                     value={invoiceDetails.invoiceNumber}
                     onChange={e => setInvoiceDetails({...invoiceDetails, invoiceNumber: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 font-mono"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
                   />
                 </div>
                 <div>
@@ -6417,7 +6696,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                     type="date"
                     value={invoiceDetails.invoiceDate}
                     onChange={e => setInvoiceDetails({...invoiceDetails, invoiceDate: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 font-mono"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
                   />
                 </div>
                 <div>
@@ -6426,7 +6705,17 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                     type="date"
                     value={invoiceDetails.dueDate}
                     onChange={e => setInvoiceDetails({...invoiceDetails, dueDate: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 font-mono"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-widest text-zinc-500 mb-1">Ledger</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Accounts Receivable"
+                    value={invoiceDetails.ledger}
+                    onChange={e => setInvoiceDetails({...invoiceDetails, ledger: e.target.value})}
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
                   />
                 </div>
               </div>
@@ -6440,7 +6729,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                     step="0.1"
                     value={invoiceDetails.salesTaxPercent}
                     onChange={e => setInvoiceDetails({...invoiceDetails, salesTaxPercent: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 font-mono"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
                   />
                 </div>
                 <div>
@@ -6451,7 +6740,29 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                     step="1"
                     value={invoiceDetails.withholdingTaxAmount}
                     onChange={e => setInvoiceDetails({...invoiceDetails, withholdingTaxAmount: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 font-mono"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-widest text-zinc-500 mb-1">Fuel Deduction (PKR)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={invoiceDetails.fuelDeductionAmount}
+                    onChange={e => setInvoiceDetails({...invoiceDetails, fuelDeductionAmount: e.target.value})}
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono uppercase tracking-widest text-zinc-500 mb-1">Detention Deduction (PKR)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={invoiceDetails.detentionDeductionAmount}
+                    onChange={e => setInvoiceDetails({...invoiceDetails, detentionDeductionAmount: e.target.value})}
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
                   />
                 </div>
               </div>
@@ -6466,7 +6777,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                       placeholder="e.g. Meezan Bank"
                       value={invoiceDetails.bankName}
                       onChange={e => setInvoiceDetails({...invoiceDetails, bankName: e.target.value})}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     />
                   </div>
                   <div>
@@ -6476,7 +6787,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                       placeholder="e.g. Vital Logistics"
                       value={invoiceDetails.accountTitle}
                       onChange={e => setInvoiceDetails({...invoiceDetails, accountTitle: e.target.value})}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     />
                   </div>
                   <div>
@@ -6486,7 +6797,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                       placeholder="e.g. PK00 MEZN..."
                       value={invoiceDetails.accountNumber}
                       onChange={e => setInvoiceDetails({...invoiceDetails, accountNumber: e.target.value})}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 font-mono"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] font-mono"
                     />
                   </div>
                   <div>
@@ -6496,7 +6807,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                       placeholder="e.g. 15 Days"
                       value={invoiceDetails.paymentTerms}
                       onChange={e => setInvoiceDetails({...invoiceDetails, paymentTerms: e.target.value})}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     />
                   </div>
                 </div>
@@ -6510,7 +6821,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                     rows={2}
                     value={invoiceDetails.termsConditions}
                     onChange={e => setInvoiceDetails({...invoiceDetails, termsConditions: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                   />
                 </div>
                 <div>
@@ -6519,7 +6830,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
                     type="text"
                     value={invoiceDetails.latePaymentCharges}
                     onChange={e => setInvoiceDetails({...invoiceDetails, latePaymentCharges: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                   />
                 </div>
               </div>
@@ -6623,23 +6934,23 @@ const MyCompanyView = ({ profile, companiesData }) => {
       <div className="space-y-4 bg-white p-6 rounded shadow border border-gray-100">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-          <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+          <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]" />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-          <input type="text" name="address" value={formData.address} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+          <input type="text" name="address" value={formData.address} onChange={handleChange} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]" />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Contact Information</label>
-          <input type="text" name="contactNumber" value={formData.contactNumber} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+          <input type="text" name="contactNumber" value={formData.contactNumber} onChange={handleChange} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]" />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">NTN / Registration Number</label>
-          <input type="text" name="ntn" value={formData.ntn} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" />
+          <input type="text" name="ntn" value={formData.ntn} onChange={handleChange} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]" />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Document URL (PDF/Image Link)</label>
-          <input type="text" name="documentUrl" value={formData.documentUrl} onChange={handleChange} className="w-full border border-gray-300 p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors" placeholder="https://..." />
+          <input type="text" name="documentUrl" value={formData.documentUrl} onChange={handleChange} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]" placeholder="https://..." />
         </div>
         <div className="pt-4 text-right">
           <button
@@ -6825,7 +7136,7 @@ const CompaniesView = ({ companiesData }) => {
                 <select
                   value={formData.type}
                   onChange={e => setFormData({...formData, type: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 >
                   <option value="vital company">Vital Company</option>
                   <option value="transporter">Transporter</option>
@@ -6839,7 +7150,7 @@ const CompaniesView = ({ companiesData }) => {
                   type="text"
                   value={formData.name}
                   onChange={e => setFormData({...formData, name: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 />
               </div>
               <div>
@@ -6857,7 +7168,7 @@ const CompaniesView = ({ companiesData }) => {
                     type="text"
                     value={formData.ntn}
                     onChange={e => setFormData({...formData, ntn: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                   />
                 </div>
                 <div>
@@ -6866,7 +7177,7 @@ const CompaniesView = ({ companiesData }) => {
                     type="text"
                     value={formData.contactNumber}
                     onChange={e => setFormData({...formData, contactNumber: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                   />
                 </div>
               </div>
@@ -6876,7 +7187,7 @@ const CompaniesView = ({ companiesData }) => {
                   type="email"
                   value={formData.email}
                   onChange={e => setFormData({...formData, email: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 />
               </div>
               <div>
@@ -6886,7 +7197,7 @@ const CompaniesView = ({ companiesData }) => {
                   value={formData.logoUrl}
                   onChange={e => setFormData({...formData, logoUrl: e.target.value})}
                   placeholder="https://..."
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 />
               </div>
               <div className="pt-4 border-t border-zinc-100 flex justify-end gap-3">
@@ -6917,6 +7228,63 @@ const SettingsView = ({ profile }) => {
   const [photoURL, setPhotoURL] = useState(profile?.photoURL || "");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState(null);
+
+  // --- Form Configurations (Admin) ---
+  const [formConfig, setFormConfig] = useState(null);
+
+  useEffect(() => {
+    if (profile?.role === "admin") {
+      const unsub = onSnapshot(doc(db, "settings", "formConfig"), (docSnap) => {
+        if (docSnap.exists()) {
+          setFormConfig(docSnap.data());
+        } else {
+          setFormConfig({
+            shipments: {
+              blNumber: { label: "B/L Number", required: true, visible: true },
+              containerNumber: { label: "Container Number", required: true, visible: true },
+              containerSizeAndType: { label: "Size/Type", required: true, visible: true },
+              grossWeight: { label: "Gross Weight (KG)", required: false, visible: true },
+              numberOfPackages: { label: "Number of Packages", required: false, visible: true },
+              commodityDescription: { label: "Commodity Description", required: false, visible: true },
+              dutyPayDate: { label: "Duty Pay Date", required: false, visible: true },
+              clearanceDate: { label: "Clearance Date", required: false, visible: true },
+              portGateInTime: { label: "Port Gate In", required: false, visible: true },
+              portGateOutTime: { label: "Port Gate Out", required: false, visible: true },
+              clearingAgentId: { label: "Clearing Agent", required: false, visible: true },
+              transporterId: { label: "Transporter", required: false, visible: true },
+              vehicleNumber: { label: "Vehicle Number", required: true, visible: true },
+              vehicleType: { label: "Vehicle Type", required: true, visible: true },
+              driverName: { label: "Driver Name", required: true, visible: true },
+              driverPhone: { label: "Driver Phone", required: true, visible: true },
+              estimatedLiftingTime: { label: "Estimated Lifting Time", required: false, visible: true },
+              actualLiftingTime: { label: "Actual Lifting Time", required: false, visible: true },
+              liveTrackingUrl: { label: "Live Tracking URL", required: false, visible: true },
+              factoryGateInTime: { label: "Factory Gate In", required: false, visible: true },
+              unloadingTime: { label: "Unloading Time", required: false, visible: true },
+              unloadingLocation: { label: "Unloading Location", required: false, visible: true },
+              factoryGateOutTime: { label: "Factory Gate Out", required: false, visible: true },
+              receiverId: { label: "Receiver", required: false, visible: true },
+              returnWarehouseDetails: { label: "Return Warehouse", required: false, visible: true },
+              emptyContainerReturnTime: { label: "Empty Container Return", required: false, visible: true },
+            }
+          });
+        }
+      });
+      return () => unsub();
+    }
+  }, [profile?.role]);
+
+  const handleSaveFormConfig = async () => {
+    if (profile?.role !== "admin" || !formConfig) return;
+    try {
+      await setDoc(doc(db, "settings", "formConfig"), formConfig);
+      setMessage({ type: "success", text: "Form configuration updated successfully!" });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, "settings/formConfig");
+      setMessage({ type: "error", text: "Failed to update form configuration." });
+    }
+  };
+  // ------------------------------------
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -6981,7 +7349,7 @@ const SettingsView = ({ profile }) => {
                 value={photoURL}
                 onChange={(e) => setPhotoURL(e.target.value)}
                 placeholder="https://example.com/photo.jpg"
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-orange-500/50 text-zinc-900"
+                className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               />
             </div>
           </div>
@@ -6996,7 +7364,7 @@ const SettingsView = ({ profile }) => {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Your Name"
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-orange-500/50 text-zinc-900"
+                className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               />
             </div>
             <div>
@@ -7027,7 +7395,7 @@ const SettingsView = ({ profile }) => {
                       type="text"
                       value={companyName}
                       onChange={(e) => setCompanyName(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-orange-500/50 text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     />
                   </div>
                   <div>
@@ -7037,7 +7405,7 @@ const SettingsView = ({ profile }) => {
                     <textarea
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-orange-500/50 text-zinc-900 resize-none h-20"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] resize-none h-20"
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -7049,7 +7417,7 @@ const SettingsView = ({ profile }) => {
                         type="text"
                         value={ntn}
                         onChange={(e) => setNtn(e.target.value)}
-                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-orange-500/50 text-zinc-900"
+                        className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                       />
                     </div>
                     <div>
@@ -7060,7 +7428,7 @@ const SettingsView = ({ profile }) => {
                         type="text"
                         value={contactNumber}
                         onChange={(e) => setContactNumber(e.target.value)}
-                        className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-orange-500/50 text-zinc-900"
+                        className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                       />
                     </div>
                   </div>
@@ -7073,7 +7441,7 @@ const SettingsView = ({ profile }) => {
                       value={logoUrl}
                       onChange={(e) => setLogoUrl(e.target.value)}
                       placeholder="https://..."
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-orange-500/50 text-zinc-900"
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                     />
                   </div>
                 </div>
@@ -7097,7 +7465,7 @@ const SettingsView = ({ profile }) => {
             <button
               type="submit"
               disabled={isSaving}
-              className="ml-auto bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="ml-auto px-6 py-2 bg-orange-500 border-2 border-orange-700 text-white rounded-xl text-sm font-bold hover:bg-orange-600 transition-all shadow-[0_4px_0_rgb(194,65,12)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(194,65,12)] active:translate-y-0 active:shadow-[0_0px_0_rgb(194,65,12)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isSaving ? "Saving..." : "Save Changes"}
             </button>
@@ -7125,6 +7493,90 @@ const SettingsView = ({ profile }) => {
           </div>
         </div>
       </div>
+
+      {profile?.role === "admin" && formConfig && (
+        <div className="mt-8 bg-white border-2 border-zinc-200 rounded-2xl shadow-[0_4px_0_rgb(228,228,231)] overflow-hidden">
+          <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+            <h3 className="text-sm font-mono uppercase tracking-widest text-zinc-900">
+              Form Configurations (Admin)
+            </h3>
+            <button
+              onClick={handleSaveFormConfig}
+              className="px-4 py-1.5 bg-zinc-900 border-2 border-black text-white text-xs font-bold rounded-xl hover:bg-zinc-800 transition-all shadow-[0_4px_0_rgb(0,0,0)] hover:-translate-y-[1px] hover:shadow-[0_5px_0_rgb(0,0,0)] active:translate-y-[4px] active:shadow-[0_0px_0_rgb(0,0,0)]"
+            >
+              Save Form Settings
+            </button>
+          </div>
+          <div className="p-6 space-y-6">
+            <p className="text-sm text-zinc-600">Configure which fields are mandatory (required) and their display labels across the application.</p>
+            
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-widest">Shipment Fields</h4>
+              {Object.entries(formConfig.shipments || {}).map(([fieldKey, config]) => (
+                <div key={fieldKey} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end border-b border-zinc-100 pb-4">
+                  <div className="md:col-span-1">
+                    <label className="block text-[10px] font-mono text-zinc-500 uppercase">System Key</label>
+                    <div className="text-sm font-medium text-zinc-700 mt-1 bg-zinc-100 px-2 py-1 rounded inline-block">{fieldKey}</div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-mono text-zinc-500 uppercase mb-1">Display Label</label>
+                    <input
+                      type="text"
+                      value={config.label}
+                      onChange={(e) => {
+                        setFormConfig(prev => ({
+                          ...prev,
+                          shipments: {
+                            ...prev.shipments,
+                            [fieldKey]: { ...prev.shipments[fieldKey], label: e.target.value }
+                          }
+                        }));
+                      }}
+                      className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-1.5 text-sm font-medium text-zinc-700 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
+                    />
+                  </div>
+                  <div className="md:col-span-1 flex flex-col justify-end gap-2 h-full pb-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.required}
+                        onChange={(e) => {
+                          setFormConfig(prev => ({
+                            ...prev,
+                            shipments: {
+                              ...prev.shipments,
+                              [fieldKey]: { ...prev.shipments[fieldKey], required: e.target.checked }
+                            }
+                          }));
+                        }}
+                        className="rounded text-orange-600 focus:ring-orange-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span className="text-sm text-zinc-700 font-medium whitespace-nowrap">Required</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.visible !== false}
+                        onChange={(e) => {
+                          setFormConfig(prev => ({
+                            ...prev,
+                            shipments: {
+                              ...prev.shipments,
+                              [fieldKey]: { ...prev.shipments[fieldKey], visible: e.target.checked }
+                            }
+                          }));
+                        }}
+                        className="rounded text-orange-600 focus:ring-orange-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span className="text-sm text-zinc-700 font-medium whitespace-nowrap">Visible</span>
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-8 bg-white border-2 border-zinc-200 rounded-2xl shadow-[0_4px_0_rgb(228,228,231)] overflow-hidden">
         <div className="p-6 border-b border-zinc-100">
@@ -7156,7 +7608,7 @@ const SettingsView = ({ profile }) => {
                 }
                 window.deferredPrompt = null;
               }}
-              className="px-4 py-2 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors"
+              className="px-4 py-2 bg-zinc-900 border-2 border-black text-white rounded-xl text-sm font-bold transition-all shadow-[0_4px_0_rgb(0,0,0)] hover:-translate-y-[1px] hover:shadow-[0_5px_0_rgb(0,0,0)] active:translate-y-[4px] active:shadow-[0_0px_0_rgb(0,0,0)]"
             >
               Download App
             </button>
@@ -7457,7 +7909,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
           )}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <input
-              className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+              className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               placeholder="Username / ID"
               value={newTempData.username}
               onChange={(e) =>
@@ -7466,7 +7918,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
             />
 
             <input
-              className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+              className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               placeholder="Password"
               type="password"
               value={newTempData.password}
@@ -7476,7 +7928,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
             />
 
             <input
-              className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+              className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               placeholder="Display Name"
               value={newTempData.displayName}
               onChange={(e) =>
@@ -7485,7 +7937,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
             />
 
             <select
-              className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+              className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               value={newTempData.role}
               onChange={(e) =>
                 setNewTempData({ ...newTempData, role: e.target.value })
@@ -7503,7 +7955,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
             </select>
             {newTempData.role === "warehouse_manager" && (
               <select
-                className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 value={newTempData.warehouseLocation}
                 onChange={(e) =>
                   setNewTempData({
@@ -7551,7 +8003,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <input
-              className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+              className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               placeholder="Email Address"
               value={newUserData.email}
               onChange={(e) =>
@@ -7560,7 +8012,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
             />
 
             <input
-              className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+              className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               placeholder="Display Name"
               value={newUserData.displayName}
               onChange={(e) =>
@@ -7569,7 +8021,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
             />
 
             <select
-              className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+              className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
               value={newUserData.role}
               onChange={(e) =>
                 setNewUserData({ ...newUserData, role: e.target.value })
@@ -7587,7 +8039,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
             </select>
             {newUserData.role === "warehouse_manager" && (
               <select
-                className="bg-white border border-zinc-200 rounded-lg px-4 py-2 text-sm text-zinc-900 focus:border-orange-500 outline-none"
+                className="bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 value={newUserData.warehouseLocation}
                 onChange={(e) =>
                   setNewUserData({
@@ -7614,13 +8066,13 @@ const UsersView = ({ users, profile, shipments = [] }) => {
           <div className="flex justify-end gap-3">
             <button
               onClick={() => setIsAdding(false)}
-              className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-600"
+              className="px-4 py-2 bg-white border-2 border-zinc-200 text-zinc-600 rounded-xl text-sm font-bold hover:bg-zinc-50 transition-all shadow-[0_4px_0_rgb(228,228,231)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(228,228,231)] active:translate-y-0 active:shadow-[0_0px_0_rgb(228,228,231)]"
             >
               Cancel
             </button>
             <button
               onClick={handleCreateUser}
-              className="bg-zinc-900 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-zinc-800 shadow-lg shadow-zinc-900/10"
+              className="px-6 py-2 bg-zinc-900 border-2 border-black text-white rounded-xl text-sm font-bold transition-all shadow-[0_4px_0_rgb(0,0,0)] hover:-translate-y-[1px] hover:shadow-[0_5px_0_rgb(0,0,0)] active:translate-y-[4px] active:shadow-[0_0px_0_rgb(0,0,0)]"
             >
               Save Profile
             </button>
@@ -7715,7 +8167,24 @@ function MainApp() {
   const [notifications, setNotifications] = useState([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [rolePermissions, setRolePermissions] = useState(DEFAULT_PERMISSIONS);
+  const [formConfig, setFormConfig] = useState(null);
   const [globalMessage, setGlobalMessage] = useState("");
+  const [globalSearchInput, setGlobalSearchInput] = useState("");
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+
+  useTrackerSync(shipments, profile);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "settings", "formConfig"), (docSnap) => {
+      if (docSnap.exists()) {
+        setFormConfig(docSnap.data());
+      } else {
+         // This serves as the fallback for rendering form items if no custom settings exist
+        setFormConfig({ shipments: {} });
+      }
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
@@ -8014,7 +8483,7 @@ function MainApp() {
       const sId = `VTL-${Math.floor(Math.random() * 10000)}`;
       await setDoc(doc(db, "shipments", sId), {
         trackingId: sId,
-        status: "In Transit",
+        status: "Waiting for Unloading",
         vesselName: "Ever Given II",
         containerNumber: "MSCU-1234567",
         containerSizeAndType: "40HC",
@@ -8406,6 +8875,15 @@ function MainApp() {
               onClick={() => setActiveTab("Permissions")}
             />
           )}
+          {profile?.role === "admin" && (
+            <SidebarItem
+              isSidebarOpen={isSidebarOpen}
+              icon={Crosshair}
+              label="Tracker APIs"
+              active={activeTab === "TrackerIntegrations"}
+              onClick={() => setActiveTab("TrackerIntegrations")}
+            />
+          )}
         </nav>
 
         <div className="p-4 border-t border-zinc-100 flex flex-col gap-1">
@@ -8483,16 +8961,35 @@ function MainApp() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="relative hidden md:block">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-                size={16}
-              />
-              <input
-                type="text"
-                placeholder="Search shipments, orders..."
-                className="bg-zinc-100 border border-zinc-200 rounded-full py-1.5 pl-10 pr-4 text-sm focus:outline-none focus:border-orange-500/50 w-64 transition-all text-zinc-900 placeholder:text-zinc-500"
-              />
+            <div className="relative hidden md:flex items-center gap-2">
+              <div className="relative">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+                  size={16}
+                />
+                <input
+                  type="text"
+                  placeholder="Search shipments, tracking IDs, vessels..."
+                  value={globalSearchInput}
+                  onChange={(e) => setGlobalSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setGlobalSearchQuery(globalSearchInput);
+                      setActiveTab("Shipments");
+                    }
+                  }}
+                  className="bg-zinc-100 border border-zinc-200 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500/50 w-64 transition-all text-zinc-900 placeholder:text-zinc-500"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setGlobalSearchQuery(globalSearchInput);
+                  setActiveTab("Shipments");
+                }}
+                className="bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-sm active:scale-95"
+              >
+                Search
+              </button>
             </div>
             <div className="relative">
               <button
@@ -8650,6 +9147,8 @@ function MainApp() {
                   rolePermissions={rolePermissions}
                   users={users}
                   companiesData={companiesData}
+                  formConfig={formConfig}
+                  globalSearchQuery={globalSearchQuery}
                 />
               )}
               {activeTab === "Invoices" && (
@@ -8662,11 +9161,14 @@ function MainApp() {
               {activeTab === "Permissions" && (
                 <PermissionsView rolePermissions={rolePermissions} />
               )}
+              {activeTab === "TrackerIntegrations" && (
+                <TrackerIntegrationsView />
+              )}
               {activeTab === "Analytics" && (
                 <AnalyticsDashboard shipments={shipments} users={users} />
               )}
               {activeTab === "Documents" && (
-                <DocumentGallery shipments={shipments} />
+                <DocumentGallery shipments={shipments} profile={profile} />
               )}
               {activeTab === "Reports" && (
                 <ReportsView shipments={shipments} profile={profile} companiesData={companiesData} setActiveTab={setActiveTab} />
@@ -8776,7 +9278,7 @@ function MainApp() {
                         ) : (
                           <a href={msg.attachment.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-2 bg-black/10 rounded-lg hover:bg-black/20 transition-colors">
                             <FileIcon size={16} />
-                            <span className="truncate max-w-[150px] text-xs">{msg.attachment.name}</span>
+                            <span className="break-all whitespace-normal max-w-[150px] text-xs">{msg.attachment.name}</span>
                           </a>
                         )}
                       </div>
@@ -8887,10 +9389,10 @@ function MainApp() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-900 truncate">
+                    <p className="text-sm font-medium text-zinc-900 break-all whitespace-normal">
                       {otherUser?.displayName || "Unknown User"}
                     </p>
-                    <p className="text-xs text-zinc-500 truncate">
+                    <p className="text-xs text-zinc-500 break-all whitespace-normal">
                       {chat.lastMessage || "No messages yet"}
                     </p>
                   </div>
@@ -9005,7 +9507,7 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, isSidebarOpen = true 
     title={!isSidebarOpen ? label : undefined}
   >
     <Icon size={18} className="shrink-0" />
-    {isSidebarOpen && <span className="truncate">{label}</span>}
+    {isSidebarOpen && <span className="break-all whitespace-normal">{label}</span>}
   </button>
 );
 
@@ -9071,7 +9573,7 @@ const TheftAndInsuranceView = ({ shipments, profile, users }) => {
       </div>
       <div className="bg-white border-2 border-zinc-200 rounded-xl shadow-[0_4px_0_rgb(228,228,231)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
+          <table className="w-full text-left text-sm whitespace-normal break-words">
             <thead className="bg-zinc-50 border-b border-zinc-200 text-xs text-zinc-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Tracking ID</th>

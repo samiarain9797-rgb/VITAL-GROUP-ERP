@@ -111,12 +111,20 @@ const ComplaintsView = ({ complaints, shipments, vessels, profile, users }) => {
     }
   };
 
+  const getSortTime = (ts) => {
+    if (!ts) return Date.now() + 100000;
+    if (typeof ts.toMillis === 'function') return ts.toMillis() || Date.now() + 100000;
+    if (ts.seconds) return ts.seconds * 1000;
+    if (ts.toDate) return ts.toDate().getTime();
+    return Date.now() + 100000;
+  };
+
   const filteredComplaints = complaints.filter(c => {
     const matchesSearch = c.subject.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           c.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "All" || c.status === statusFilter;
     return matchesSearch && matchesStatus;
-  }).sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis());
+  }).sort((a, b) => getSortTime(b.createdAt) - getSortTime(a.createdAt));
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -249,7 +257,7 @@ const ComplaintsView = ({ complaints, shipments, vessels, profile, users }) => {
                   value={newSubject}
                   onChange={e => setNewSubject(e.target.value)}
                   placeholder="Brief description of the issue"
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -258,7 +266,7 @@ const ComplaintsView = ({ complaints, shipments, vessels, profile, users }) => {
                   <select
                     value={newCategory}
                     onChange={e => setNewCategory(e.target.value)}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                   >
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -268,7 +276,7 @@ const ComplaintsView = ({ complaints, shipments, vessels, profile, users }) => {
                   <select
                     value={newPriority}
                     onChange={e => setNewPriority(e.target.value)}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                   >
                     {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
@@ -281,7 +289,7 @@ const ComplaintsView = ({ complaints, shipments, vessels, profile, users }) => {
                   value={newRelatedId}
                   onChange={e => setNewRelatedId(e.target.value)}
                   placeholder="e.g., TRK-12345 or VSL-987"
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
                 />
               </div>
               <div>
@@ -292,7 +300,7 @@ const ComplaintsView = ({ complaints, shipments, vessels, profile, users }) => {
                   onChange={e => setNewDescription(e.target.value)}
                   rows={4}
                   placeholder="Please provide as much detail as possible..."
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 resize-none"
+                  className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)] resize-none"
                 />
               </div>
               <div className="pt-4 flex justify-end gap-3">

@@ -538,15 +538,15 @@ const FreightRatesView = ({ profile, users = [], PAKISTAN_LOCATIONS = {} }) => {
                     <div className="grid grid-cols-3 gap-3 mb-4">
                       <div>
                         <label className="block text-[10px] uppercase text-zinc-500 mb-1">PSO Start</label>
-                        <input type="number" value={genConfig.rangeStart} onChange={e => setGenConfig({...genConfig, rangeStart: e.target.value})} className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-sm focus:border-purple-500 focus:outline-none" />
+                        <input type="number" value={genConfig.rangeStart} onChange={e => setGenConfig({...genConfig, rangeStart: e.target.value})} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1 text-sm font-medium text-zinc-900 outline-none focus:border-purple-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(168,85,247)]" />
                       </div>
                       <div>
                         <label className="block text-[10px] uppercase text-zinc-500 mb-1">PSO End</label>
-                        <input type="number" value={genConfig.rangeEnd} onChange={e => setGenConfig({...genConfig, rangeEnd: e.target.value})} className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-sm focus:border-purple-500 focus:outline-none" />
+                        <input type="number" value={genConfig.rangeEnd} onChange={e => setGenConfig({...genConfig, rangeEnd: e.target.value})} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1 text-sm font-medium text-zinc-900 outline-none focus:border-purple-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(168,85,247)]" />
                       </div>
                       <div>
                         <label className="block text-[10px] uppercase text-zinc-500 mb-1">PSO Gap</label>
-                        <input type="number" value={genConfig.gap} onChange={e => setGenConfig({...genConfig, gap: e.target.value})} className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-sm focus:border-purple-500 focus:outline-none" />
+                        <input type="number" value={genConfig.gap} onChange={e => setGenConfig({...genConfig, gap: e.target.value})} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1 text-sm font-medium text-zinc-900 outline-none focus:border-purple-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(168,85,247)]" />
                       </div>
                     </div>
 
@@ -554,11 +554,11 @@ const FreightRatesView = ({ profile, users = [], PAKISTAN_LOCATIONS = {} }) => {
                       <div className="grid grid-cols-2 gap-3 mb-4">
                         <div>
                           <label className="block text-[10px] uppercase text-zinc-500 mb-1">Base Freight (at Start)</label>
-                          <input type="number" value={genConfig.baseFreight} onChange={e => setGenConfig({...genConfig, baseFreight: e.target.value})} className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-sm focus:border-purple-500 focus:outline-none" />
+                          <input type="number" value={genConfig.baseFreight} onChange={e => setGenConfig({...genConfig, baseFreight: e.target.value})} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1 text-sm font-medium text-zinc-900 outline-none focus:border-purple-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(168,85,247)]" />
                         </div>
                         <div>
                           <label className="block text-[10px] uppercase text-zinc-500 mb-1">+ Freight Increase per Gap</label>
-                          <input type="number" value={genConfig.freightIncrease} onChange={e => setGenConfig({...genConfig, freightIncrease: e.target.value})} className="w-full bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-sm focus:border-purple-500 focus:outline-none" />
+                          <input type="number" value={genConfig.freightIncrease} onChange={e => setGenConfig({...genConfig, freightIncrease: e.target.value})} className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1 text-sm font-medium text-zinc-900 outline-none focus:border-purple-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(168,85,247)]" />
                         </div>
                       </div>
                     ) : (
@@ -589,22 +589,22 @@ const FreightRatesView = ({ profile, users = [], PAKISTAN_LOCATIONS = {} }) => {
                     <div key={index} className="flex items-end gap-3">
                       <div className="flex-1">
                         <label className="block text-[10px] font-mono uppercase text-zinc-500 mb-1">Min PSO Price</label>
-                        <input type="number" value={slab.minFuel} onChange={e => handleSlabChange(index, 'minFuel', e.target.value)} placeholder="250" className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                        <input type="number" value={slab.minFuel} onChange={e => handleSlabChange(index, 'minFuel', e.target.value)} placeholder="250" className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-blue-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(59,130,246)]" />
                       </div>
                       <div className="pb-2 text-zinc-400 font-bold">to</div>
                       <div className="flex-1">
                         <label className="block text-[10px] font-mono uppercase text-zinc-500 mb-1">Max PSO Price</label>
-                        <input type="number" value={slab.maxFuel} onChange={e => handleSlabChange(index, 'maxFuel', e.target.value)} placeholder="255" className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                        <input type="number" value={slab.maxFuel} onChange={e => handleSlabChange(index, 'maxFuel', e.target.value)} placeholder="255" className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-blue-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(59,130,246)]" />
                       </div>
                       <div className="pb-2 text-zinc-400 font-bold">=</div>
                       <div className="flex-1">
                         <label className="block text-[10px] font-mono uppercase text-zinc-500 mb-1">Base Rate</label>
-                        <input type="number" value={slab.baseRate} onChange={e => handleSlabChange(index, 'baseRate', e.target.value)} placeholder="50000" className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                        <input type="number" value={slab.baseRate} onChange={e => handleSlabChange(index, 'baseRate', e.target.value)} placeholder="50000" className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-blue-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(59,130,246)]" />
                       </div>
                       <div className="pb-2 text-zinc-400 font-bold">→</div>
                       <div className="flex-1">
                         <label className="block text-[10px] font-mono uppercase text-zinc-500 mb-1">Freight Rate</label>
-                        <input type="number" value={slab.freightRate} onChange={e => handleSlabChange(index, 'freightRate', e.target.value)} placeholder="150000" className="w-full bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                        <input type="number" value={slab.freightRate} onChange={e => handleSlabChange(index, 'freightRate', e.target.value)} placeholder="150000" className="w-full bg-white border-2 border-zinc-200 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-blue-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(59,130,246)]" />
                       </div>
                       <button onClick={() => handleRemoveSlab(index)} className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg mb-0.5"><Trash2 size={18}/></button>
                     </div>

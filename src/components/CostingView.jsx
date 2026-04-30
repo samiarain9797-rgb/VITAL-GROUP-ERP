@@ -23,10 +23,18 @@ const CostingView = ({ profile }) => {
     return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(amount || 0);
   };
 
+  const getSortTime = (ts) => {
+    if (!ts) return Date.now() + 100000;
+    if (typeof ts.toMillis === 'function') return ts.toMillis() || Date.now() + 100000;
+    if (ts.seconds) return ts.seconds * 1000;
+    if (ts.toDate) return ts.toDate().getTime();
+    return Date.now() + 100000;
+  };
+
   const filteredCostings = costings.filter(c => 
     c.transporterName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.destination?.toLowerCase().includes(searchTerm.toLowerCase())
-  ).sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+  ).sort((a, b) => getSortTime(b.createdAt) - getSortTime(a.createdAt));
 
   // Calculate totals
   const totals = filteredCostings.reduce((acc, c) => {
