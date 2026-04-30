@@ -669,7 +669,7 @@ const ShipmentRow = ({
     const isReturnLoadReceived = hasReturnLoadPlanned && !!(editData.returnLoadReceivedStatus && editData.returnLoadDocument);
     const isContainerReturned = !!(editData.emptyContainerReturnTime && editData.emptyContainerEirUrl);
 
-    let newStatus = "Waiting for Planning";
+    let newStatus = "Waiting for Clearing";
 
     if (shipment.type === "local") {
       if (isUnloadingComplete) {
@@ -681,7 +681,7 @@ const ShipmentRow = ({
       } else if (isPlanningComplete) {
           newStatus = "Waiting for Assignment";
       } else {
-          newStatus = "Waiting for Planning";
+          newStatus = "Waiting for Clearing";
       }
     } else {
       if (isContainerReturned && isUnloadingComplete && (!hasReturnLoadPlanned || isReturnLoadReceived)) {
@@ -705,7 +705,7 @@ const ShipmentRow = ({
       } else if (isPlanningComplete) {
           newStatus = "Waiting for Clearing";
       } else {
-          newStatus = "Waiting for Planning";
+          newStatus = "Waiting for Clearing";
       }
     }
 
@@ -1120,7 +1120,7 @@ const ShipmentRow = ({
             <h4 className="text-[9px] font-mono uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
               <LayoutDashboard size={10} /> Planning
             </h4>
-            {isEditing && perms.planning === "write" ? (
+            {false ? (
               <div className="space-y-2">
                 {shipment.type !== "local" && (
                   <div className="flex flex-col gap-2">
@@ -1257,51 +1257,11 @@ const ShipmentRow = ({
             {isEditing && perms.clearing === "write" ? (
               <div className="space-y-2">
                 <div className="flex flex-col gap-2">
-                  {editData.vesselName && editData.arrivalDate && editData.blNumber && (
-                    <button
-                      type="button"
-                      onClick={() => setShowContainerPopup(true)}
-                      className="w-full px-3 py-1.5 bg-orange-100 border-b-2 border-orange-300 text-orange-700 text-xs rounded-lg hover:bg-orange-200 whitespace-nowrap transition-all shadow-[0_2px_0_rgb(253,186,116)] hover:-translate-y-[1px] hover:shadow-[0_3px_0_rgb(253,186,116)] active:translate-y-0 active:shadow-[0_0px_0_rgb(253,186,116)] font-bold"
-                    >
-                      Select Container
-                    </button>
-                  )}
                   <input
-                    className="w-full bg-white border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_3px_0_rgb(228,228,231)] focus:-translate-y-[1px] focus:shadow-[0_4px_0_rgb(249,115,22)]"
+                    readOnly
+                    className="w-full bg-zinc-50 border-2 border-zinc-200 rounded-xl px-2 py-1.5 text-xs font-medium text-zinc-500 cursor-not-allowed"
                     placeholder="Container # *"
                     value={editData.containerNumber || ""}
-                    onChange={(e) => {
-                      const newContainerNumber = e.target.value;
-                      let newSize = editData.containerSizeAndType;
-                      let newWeight = editData.grossWeight;
-                      let newDutyPay = editData.dutyPayDate;
-                      let newClearance = editData.clearanceDate;
-                      
-                      if (editData.vesselName && editData.arrivalDate && editData.blNumber) {
-                        const vessel = loadedVessel || vessels?.find(v => v.name === editData.vesselName && (v.arrivalDate === editData.arrivalDate || v.expectedDate === editData.arrivalDate));
-                        if (vessel) {
-                          const bl = vessel.bls?.find(b => b.blNumber === editData.blNumber);
-                          if (bl) {
-                            const container = bl.containers?.find(c => c.containerNumber === newContainerNumber);
-                            if (container) {
-                              newSize = container.size;
-                              newWeight = container.weight;
-                              newDutyPay = container.dutyPayDate || "";
-                              newClearance = container.clearanceDate || "";
-                            }
-                          }
-                        }
-                      }
-                      
-                      setEditData({
-                        ...editData,
-                        containerNumber: newContainerNumber,
-                        containerSizeAndType: newSize,
-                        grossWeight: newWeight,
-                        dutyPayDate: newDutyPay,
-                        clearanceDate: newClearance,
-                      });
-                    }}
                   />
                 </div>
 
@@ -4431,7 +4391,7 @@ const VesselPlanningView = ({ vessels, shipments, profile }) => {
                                                            "bg-orange-100 text-orange-700")
                                                         : "bg-zinc-100 text-zinc-600"
                                                     )}>
-                                                      {activeShipment ? activeShipment.status : "Waiting for Planning"}
+                                                      {activeShipment ? activeShipment.status : "Waiting for Clearing"}
                                                     </span>
                                                   </div>
                                                   <span className="text-[10px] font-mono text-zinc-400">
@@ -4846,7 +4806,7 @@ function ShipmentsView({
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState("all");
   const [newShipment, setNewShipment] = useState({
     trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-    status: "Waiting for Planning",
+    status: "Waiting for Clearing",
     type: "vessel",
     vesselName: "",
     arrivalDate: "",
@@ -4912,7 +4872,7 @@ function ShipmentsView({
           clearanceDate: item.container.clearanceDate || "",
           loadingPoint: loadingPoint,
           unloadingPoint: unloadingPoint,
-          status: "Waiting for Planning",
+          status: "Waiting for Clearing",
           history: [historyEntry],
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
@@ -4932,7 +4892,7 @@ function ShipmentsView({
       setSelectedContainers([]);
       setNewShipment({
         trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-        status: "Waiting for Planning",
+        status: "Waiting for Clearing",
         type: "vessel",
         vesselName: "",
         arrivalDate: "",
@@ -4971,7 +4931,7 @@ function ShipmentsView({
         type: "local",
         loadingPoint: loadingPoint,
         unloadingPoint: unloadingPoint,
-        status: "Waiting for Planning",
+        status: "Waiting for Clearing",
         history: [historyEntry],
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
@@ -4988,7 +4948,7 @@ function ShipmentsView({
       setIsAdding(false);
       setNewShipment({
         trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-        status: "Waiting for Planning",
+        status: "Waiting for Clearing",
         type: "vessel",
         vesselName: "",
         arrivalDate: "",
@@ -5033,7 +4993,7 @@ function ShipmentsView({
               clearanceDate: row["Clearance Date"] || "",
               loadingPoint: row["Loading Point"] || "",
               unloadingPoint: row["Unloading Point"] || "",
-              status: "Waiting for Planning",
+              status: "Waiting for Clearing",
               history: [historyEntry],
               createdAt: Timestamp.now(),
               updatedAt: Timestamp.now(),
@@ -5438,7 +5398,7 @@ function ShipmentsView({
                 setIsAdding(false);
                 setNewShipment({
                   trackingId: `SHP-${Math.floor(Math.random() * 100000)}`,
-                  status: "Waiting for Planning",
+                  status: "Waiting for Clearing",
                   type: "vessel",
                   vesselName: "",
                   arrivalDate: "",
@@ -8193,19 +8153,6 @@ function MainApp() {
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
-
-  useEffect(() => {
-    async function testConnection() {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. ");
-        }
-      }
-    }
-    testConnection();
   }, []);
 
   // Chat State
