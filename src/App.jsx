@@ -7295,6 +7295,34 @@ const SettingsView = ({ profile }) => {
   };
   // ------------------------------------
 
+  const handleResetData = async () => {
+    if (profile?.role !== "admin") return;
+    const confirmReset = window.confirm("Are you absolutely sure you want to delete ALL data? This action cannot be undone. You should only run this before publishing.");
+    if (!confirmReset) return;
+
+    setIsSaving(true);
+    setMessage(null);
+
+    const collectionsToDelete = ["shipments", "vessels", "invoices", "complaints", "messages", "companies", "dummy_users"];
+
+    try {
+      for (const col of collectionsToDelete) {
+        const querySnapshot = await getDocs(collection(db, col));
+        const deletePromises = [];
+        querySnapshot.forEach((docSnap) => {
+          deletePromises.push(deleteDoc(doc(db, col, docSnap.id)));
+        });
+        await Promise.all(deletePromises);
+      }
+      setMessage({ type: "success", text: "All data deleted successfully!" });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, "multiple");
+      setMessage({ type: "error", text: "Failed to delete data. Check console." });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!profile?.uid) return;
@@ -7624,6 +7652,31 @@ const SettingsView = ({ profile }) => {
           </div>
         </div>
       </div>
+
+      {profile?.role === "admin" && (
+        <div className="mt-8 bg-red-50 border-2 border-red-200 rounded-2xl overflow-hidden mb-8">
+          <div className="p-6 border-b border-red-200">
+            <h3 className="text-sm font-mono uppercase tracking-widest text-red-900 font-bold">
+              Danger Zone
+            </h3>
+          </div>
+          <div className="p-6 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-red-900">Delete All Data</p>
+              <p className="text-xs text-red-700 mt-1 max-w-sm">
+                Permanently delete all shipments, vessels, invoices, and dummy user data. Use this carefully before publishing to start fresh.
+              </p>
+            </div>
+            <button
+              onClick={handleResetData}
+              disabled={isSaving}
+              className="px-4 py-2 bg-red-600 border-2 border-red-800 text-white rounded-xl text-sm font-bold hover:bg-red-700 transition-all shadow-[0_4px_0_rgb(153,27,27)] hover:-translate-y-[1px] hover:shadow-[0_5px_0_rgb(153,27,27)] active:translate-y-[4px] active:shadow-[0_0px_0_rgb(153,27,27)] disabled:opacity-50"
+            >
+              {isSaving ? "Deleting..." : "Reset Database"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -8484,49 +8537,6 @@ function MainApp() {
     }
   };
 
-  const handleSeedData = async () => {
-    if (profile?.role !== "admin") return;
-    try {
-      // Seed Shipments
-      const sId = `VTL-${Math.floor(Math.random() * 10000)}`;
-      await setDoc(doc(db, "shipments", sId), {
-        trackingId: sId,
-        status: "Waiting for Unloading",
-        vesselName: "Ever Given II",
-        containerNumber: "MSCU-1234567",
-        containerSizeAndType: "40HC",
-        grossWeight: "28,500 KG",
-        numberOfPackages: 450,
-        commodityDescription: "Premium Quality Black Tea",
-        dutyPayDate: "2026-03-28",
-        clearanceDate: "2026-03-30",
-        customsClearanceStatus: "Cleared",
-        clearingAgentId: "agent-001",
-        transporterId: "trans-001",
-        vehicleDetails: "Truck KAE-9988",
-        driverDetails: "John Doe (+92-300-1234567)",
-        estimatedLiftingTime: "2026-04-01 10:00",
-        estimatedArrivalTime: "2026-04-02 14:00",
-        updatedAt: Timestamp.now(),
-      });
-
-      // Seed Vessel
-      const vId = doc(collection(db, "vessels")).id;
-      await setDoc(doc(db, "vessels", vId), {
-        id: vId,
-        name: "Ever Given II",
-        expectedDate: "2026-04-05",
-        totalContainers: 150,
-        status: "Expected",
-        updatedAt: Timestamp.now(),
-      });
-
-      setGlobalMessage("Logistics data seeded successfully!");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, "seed");
-    }
-  };
-
   const handleLogin = async () => {
     setLoginError("");
     const provider = new GoogleAuthProvider();
@@ -8753,7 +8763,7 @@ function MainApp() {
           )}
         </div>
 
-        <nav className="flex-1 mt-4 px-2">
+        <nav className="flex-1 mt-4 px-2 overflow-y-auto custom-scrollbar">
           {profile?.role === "admin" && (
             <>
               <SidebarItem
@@ -8899,15 +8909,6 @@ function MainApp() {
         </nav>
 
         <div className="p-4 border-t border-zinc-100 flex flex-col gap-1">
-          {profile?.role === "admin" && (
-            <button
-              onClick={handleSeedData}
-              className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-orange-600 hover:bg-orange-50 transition-all rounded-xl hover:-translate-y-1 hover:shadow-sm"
-            >
-              <TrendingUp size={16} />
-              {isSidebarOpen && <span>Seed Mock Data</span>}
-            </button>
-          )}
           <SidebarItem
             isSidebarOpen={isSidebarOpen}
             icon={MessageSquareWarning}
