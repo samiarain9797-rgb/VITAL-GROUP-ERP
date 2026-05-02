@@ -279,23 +279,60 @@ const AuthProvider = ({ children }) => {
         if (userSnap.exists()) {
           setProfile(userSnap.data());
         } else {
-          // Only create profile for Google users automatically
-          // Temp users are created by admin with profile already existing
-          if (u.providerData.some((p) => p.providerId === "google.com")) {
+          // Check if admin pre-registered this email
+          let isPreRegistered = false;
+          let oldDummyUid = null;
+          let existingData = {};
+
+          if (u.providerData.some((p) => p.providerId === "google.com") || u.email === "samiarain9797@gmail.com") {
+            const usersRef = collection(db, "users");
+            const q = query(usersRef, where("email", "==", u.email));
+            const querySnapshot = await getDocs(q);
+
+            if (!querySnapshot.empty) {
+              const docSnap = querySnapshot.docs[0];
+              existingData = docSnap.data();
+              oldDummyUid = docSnap.id;
+              isPreRegistered = true;
+            } else if (u.email === "samiarain9797@gmail.com") {
+              // Always let the main admin sign in
+              isPreRegistered = true;
+            }
+          }
+
+          if (isPreRegistered) {
             const newProfile = {
               uid: u.uid,
               email: u.email || "",
-              displayName: u.displayName || u.email?.split("@")[0] || "",
+              displayName: existingData.displayName || u.displayName || u.email?.split("@")[0] || "",
               photoURL: u.photoURL || "",
-              role:
-                u.email === "samiarain9797@gmail.com" ? "admin" : "transporter", // Default role
+              role: existingData.role || (u.email === "samiarain9797@gmail.com" ? "admin" : "transporter"),
+              warehouseLocation: existingData.warehouseLocation || null,
+              assignedLocation: existingData.assignedLocation || null,
+              createdAt: existingData.createdAt || Timestamp.now(),
             };
-            await setDoc(userRef, {
-              ...newProfile,
-              createdAt: Timestamp.now(),
-            });
-            
-            if (newProfile.role === "transporter") {
+
+            await setDoc(userRef, newProfile);
+
+            // Delete the dummy document if it existed
+            if (oldDummyUid && oldDummyUid !== u.uid) {
+              await deleteDoc(doc(db, "users", oldDummyUid));
+
+              // If they were a transporter, update their transporterId in companies collection
+              if (newProfile.role === "transporter") {
+                const companiesRef = collection(db, "companies");
+                const cQuery = query(companiesRef, where("transporterId", "==", oldDummyUid));
+                const cDocs = await getDocs(cQuery);
+                for (const cDoc of cDocs.docs) {
+                  await updateDoc(doc(db, "companies", cDoc.id), {
+                    transporterId: u.uid
+                  });
+                }
+              }
+            }
+
+            // Fallback: If it's a new transporter but no dummy ID (e.g. initial admin), create the company
+            if (newProfile.role === "transporter" && !oldDummyUid) {
               await addDoc(collection(db, "companies"), {
                 name: newProfile.displayName,
                 email: newProfile.email,
@@ -304,12 +341,20 @@ const AuthProvider = ({ children }) => {
                 contactNumber: "",
                 logoUrl: newProfile.photoURL || "",
                 type: "transporter",
+                transporterId: u.uid,
                 createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now(),
               });
             }
 
             setProfile(newProfile);
+          } else {
+            await signOut(auth);
+            window.dispatchEvent(new CustomEvent("loginErrorEvent", { detail: "You are not registered. Please contact an administrator." }));
+            setProfile(null);
+            setUser(null);
+            setLoading(false);
+            return;
           }
         }
       } else {
@@ -7664,6 +7709,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
           contactNumber: "",
           logoUrl: "",
           type: "transporter",
+          transporterId: dummyUid,
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         });
@@ -8186,6 +8232,12 @@ function MainApp() {
   const [loginError, setLoginError] = useState("");
 
   useEffect(() => {
+    const handleLoginErrorEvent = (e) => setLoginError(e.detail);
+    window.addEventListener("loginErrorEvent", handleLoginErrorEvent);
+    return () => window.removeEventListener("loginErrorEvent", handleLoginErrorEvent);
+  }, []);
+
+  useEffect(() => {
     if (!user || !profile) return;
 
     const unsubPermissions = onSnapshot(
@@ -8486,8 +8538,12 @@ function MainApp() {
         setLoginError(
           "Google Login is not enabled in your Firebase Console. Please enable it in Authentication > Sign-in method.",
         );
+      } else if (error.code === "auth/unauthorized-domain") {
+        setLoginError(
+          "This domain is not authorized for OAuth operations for your Firebase project. Edit the list of authorized domains from the Firebase console.",
+        );
       } else {
-        setLoginError("Google login failed. Please try again.");
+        setLoginError("Google login failed. Please try again. (" + error.message + ")");
       }
     }
   };

@@ -171,7 +171,7 @@ export default function DocumentGallery({ shipments, profile }) {
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {filteredDocs.map(doc => {
-          const isImage = doc.url.startsWith('data:image') || doc.url.match(/\.(jpeg|jpg|gif|png)$/i) || doc.url.includes('%2F');
+          const isImage = doc.url && typeof doc.url === 'string' && (doc.url.startsWith('data:image') || doc.url.match(/\.(jpeg|jpg|gif|png)$/i) || doc.url.includes('%2F'));
           
           return (
             <div key={doc.id} className="bg-white rounded-xl border-2 border-zinc-200 overflow-hidden shadow-[0_4px_0_rgb(228,228,231)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(228,228,231)] transition-all group flex flex-col">
