@@ -15,6 +15,8 @@ const CostingView = ({ profile }) => {
     const unsub = onSnapshot(collection(db, 'route_costings'), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setCostings(data);
+    }, (error) => {
+      console.error("Error fetching route costings:", error);
     });
     return () => unsub();
   }, []);

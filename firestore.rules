@@ -352,5 +352,10 @@ service cloud.firestore {
                     (isAdmin() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments', 'updatedAt']));
       allow delete: if isAdmin();
     }
+
+    match /documents/{documentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
   }
 }

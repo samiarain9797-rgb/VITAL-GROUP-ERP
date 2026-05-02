@@ -7194,42 +7194,46 @@ const SettingsView = ({ profile }) => {
 
   useEffect(() => {
     if (profile?.role === "admin") {
-      const unsub = onSnapshot(doc(db, "settings", "formConfig"), (docSnap) => {
-        if (docSnap.exists()) {
-          setFormConfig(docSnap.data());
-        } else {
-          setFormConfig({
-            shipments: {
-              blNumber: { label: "B/L Number", required: true, visible: true },
-              containerNumber: { label: "Container Number", required: true, visible: true },
-              containerSizeAndType: { label: "Size/Type", required: true, visible: true },
-              grossWeight: { label: "Gross Weight (KG)", required: false, visible: true },
-              numberOfPackages: { label: "Number of Packages", required: false, visible: true },
-              commodityDescription: { label: "Commodity Description", required: false, visible: true },
-              dutyPayDate: { label: "Duty Pay Date", required: false, visible: true },
-              clearanceDate: { label: "Clearance Date", required: false, visible: true },
-              portGateInTime: { label: "Port Gate In", required: false, visible: true },
-              portGateOutTime: { label: "Port Gate Out", required: false, visible: true },
-              clearingAgentId: { label: "Clearing Agent", required: false, visible: true },
-              transporterId: { label: "Transporter", required: false, visible: true },
-              vehicleNumber: { label: "Vehicle Number", required: true, visible: true },
-              vehicleType: { label: "Vehicle Type", required: true, visible: true },
-              driverName: { label: "Driver Name", required: true, visible: true },
-              driverPhone: { label: "Driver Phone", required: true, visible: true },
-              estimatedLiftingTime: { label: "Estimated Lifting Time", required: false, visible: true },
-              actualLiftingTime: { label: "Actual Lifting Time", required: false, visible: true },
-              liveTrackingUrl: { label: "Live Tracking URL", required: false, visible: true },
-              factoryGateInTime: { label: "Factory Gate In", required: false, visible: true },
-              unloadingTime: { label: "Unloading Time", required: false, visible: true },
-              unloadingLocation: { label: "Unloading Location", required: false, visible: true },
-              factoryGateOutTime: { label: "Factory Gate Out", required: false, visible: true },
-              receiverId: { label: "Receiver", required: false, visible: true },
-              returnWarehouseDetails: { label: "Return Warehouse", required: false, visible: true },
-              emptyContainerReturnTime: { label: "Empty Container Return", required: false, visible: true },
-            }
-          });
-        }
-      });
+      const unsub = onSnapshot(
+        doc(db, "settings", "formConfig"),
+        (docSnap) => {
+          if (docSnap.exists()) {
+            setFormConfig(docSnap.data());
+          } else {
+            setFormConfig({
+              shipments: {
+                blNumber: { label: "B/L Number", required: true, visible: true },
+                containerNumber: { label: "Container Number", required: true, visible: true },
+                containerSizeAndType: { label: "Size/Type", required: true, visible: true },
+                grossWeight: { label: "Gross Weight (KG)", required: false, visible: true },
+                numberOfPackages: { label: "Number of Packages", required: false, visible: true },
+                commodityDescription: { label: "Commodity Description", required: false, visible: true },
+                dutyPayDate: { label: "Duty Pay Date", required: false, visible: true },
+                clearanceDate: { label: "Clearance Date", required: false, visible: true },
+                portGateInTime: { label: "Port Gate In", required: false, visible: true },
+                portGateOutTime: { label: "Port Gate Out", required: false, visible: true },
+                clearingAgentId: { label: "Clearing Agent", required: false, visible: true },
+                transporterId: { label: "Transporter", required: false, visible: true },
+                vehicleNumber: { label: "Vehicle Number", required: true, visible: true },
+                vehicleType: { label: "Vehicle Type", required: true, visible: true },
+                driverName: { label: "Driver Name", required: true, visible: true },
+                driverPhone: { label: "Driver Phone", required: true, visible: true },
+                estimatedLiftingTime: { label: "Estimated Lifting Time", required: false, visible: true },
+                actualLiftingTime: { label: "Actual Lifting Time", required: false, visible: true },
+                liveTrackingUrl: { label: "Live Tracking URL", required: false, visible: true },
+                factoryGateInTime: { label: "Factory Gate In", required: false, visible: true },
+                unloadingTime: { label: "Unloading Time", required: false, visible: true },
+                unloadingLocation: { label: "Unloading Location", required: false, visible: true },
+                factoryGateOutTime: { label: "Factory Gate Out", required: false, visible: true },
+                receiverId: { label: "Receiver", required: false, visible: true },
+                returnWarehouseDetails: { label: "Return Warehouse", required: false, visible: true },
+                emptyContainerReturnTime: { label: "Empty Container Return", required: false, visible: true },
+              }
+            });
+          }
+        },
+        (error) => handleFirestoreError(error, OperationType.GET, "settings/formConfig")
+      );
       return () => unsub();
     }
   }, [profile?.role]);
@@ -8135,16 +8139,21 @@ function MainApp() {
   useTrackerSync(shipments, profile);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "settings", "formConfig"), (docSnap) => {
-      if (docSnap.exists()) {
-        setFormConfig(docSnap.data());
-      } else {
-         // This serves as the fallback for rendering form items if no custom settings exist
-        setFormConfig({ shipments: {} });
-      }
-    });
+    if (!user) return;
+    const unsub = onSnapshot(
+      doc(db, "settings", "formConfig"),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setFormConfig(docSnap.data());
+        } else {
+           // This serves as the fallback for rendering form items if no custom settings exist
+          setFormConfig({ shipments: {} });
+        }
+      },
+      (error) => handleFirestoreError(error, OperationType.GET, "settings/formConfig")
+    );
     return () => unsub();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {

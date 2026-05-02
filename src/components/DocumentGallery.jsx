@@ -20,6 +20,8 @@ export default function DocumentGallery({ shipments, profile }) {
     const q = query(collection(db, 'documents'), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(q, (snapshot) => {
       setManualDocs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error fetching documents:", error);
     });
     return () => unsub();
   }, []);

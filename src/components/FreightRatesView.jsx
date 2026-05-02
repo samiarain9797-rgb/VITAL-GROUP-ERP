@@ -45,10 +45,14 @@ const FreightRatesView = ({ profile, users = [], PAKISTAN_LOCATIONS = {} }) => {
   useEffect(() => {
     const unsubFuel = onSnapshot(query(collection(db, 'fuel_prices'), orderBy('effectiveDate', 'desc')), (snapshot) => {
       setFuelPrices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error fetching fuel prices:", error);
     });
 
     const unsubRates = onSnapshot(collection(db, 'transporter_rates'), (snapshot) => {
       setTransporterRates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Error fetching transporter rates:", error);
     });
 
     return () => {
