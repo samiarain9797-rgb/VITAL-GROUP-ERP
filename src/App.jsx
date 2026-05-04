@@ -238,7 +238,7 @@ const DEFAULT_PERMISSIONS = {
     clearing: "read",
     assignment: "read",
     transit: "read",
-    unloading: "write",
+    unloading: "read",
     returnLoad: "none",
     completion: "none",
     canCreateShipments: false,
@@ -717,45 +717,55 @@ const ShipmentRow = ({
     }
 
     // Stage 2: Clearing
-    if (editData.grossWeight || editData.numberOfPackages || editData.commodityDescription) {
+    if (perms.clearing === "write" && shipment.type !== "local") {
         if (!editData.numberOfPackages) currentErrors.push("numberOfPackages");
         if (!editData.commodityDescription) currentErrors.push("commodityDescription");
     }
 
     // Stage 4: Transit
-    if (editData.vehicleNumber || editData.vehicleType || editData.driverName || editData.driverPhone || editData.driverIdCardUrl || editData.actualPickupTime || editData.actualLiftingTime) {
-        if (!editData.vehicleNumber) currentErrors.push("vehicleNumber");
-        if (!editData.vehicleType) currentErrors.push("vehicleType");
-        if (!editData.driverName) currentErrors.push("driverName");
-        if (!editData.driverPhone) currentErrors.push("driverPhone");
-        if (!editData.driverIdCardUrl) currentErrors.push("driverIdCardUrl");
-        if (shipment.type === 'local' && !editData.actualLiftingTime) currentErrors.push("actualLiftingTime");
-        if (shipment.type !== 'local' && !editData.actualPickupTime) currentErrors.push("actualPickupTime");
+    if (perms.transit === "write") {
+        if (editData.vehicleNumber || editData.vehicleType || editData.driverName || editData.driverPhone || editData.driverIdCardUrl || editData.actualPickupTime || editData.actualLiftingTime) {
+            if (!editData.vehicleNumber) currentErrors.push("vehicleNumber");
+            if (!editData.vehicleType) currentErrors.push("vehicleType");
+            if (!editData.driverName) currentErrors.push("driverName");
+            if (!editData.driverPhone) currentErrors.push("driverPhone");
+            if (!editData.driverIdCardUrl) currentErrors.push("driverIdCardUrl");
+            if (shipment.type === 'local' && !editData.actualLiftingTime) currentErrors.push("actualLiftingTime");
+            if (shipment.type !== 'local' && !editData.actualPickupTime) currentErrors.push("actualPickupTime");
+        }
     }
 
     // Stage 5: Unloading
-    if (editData.unloadingLocation || editData.unloadingPoint || editData.factoryGateInTime || editData.factoryGateOutTime || editData.unloadingDate || editData.receivingDocUrl) {
-         if (!editData.unloadingLocation && !editData.unloadingPoint) currentErrors.push("unloadingPoint");
-         if (!editData.factoryGateInTime) currentErrors.push("factoryGateInTime");
-         if (!editData.factoryGateOutTime) currentErrors.push("factoryGateOutTime");
-         if (!editData.unloadingDate) currentErrors.push("unloadingDate");
-         if (!editData.receivingDocUrl) currentErrors.push("receivingDocUrl");
+    if (perms.unloading === "write") {
+        if (editData.unloadingLocation || editData.unloadingPoint || editData.factoryGateInTime || editData.factoryGateOutTime || editData.unloadingDate || editData.receivingDocUrl) {
+             if (!editData.unloadingLocation && !editData.unloadingPoint) currentErrors.push("unloadingPoint");
+             if (!editData.factoryGateInTime) currentErrors.push("factoryGateInTime");
+             if (!editData.factoryGateOutTime) currentErrors.push("factoryGateOutTime");
+             if (!editData.unloadingDate) currentErrors.push("unloadingDate");
+             if (!editData.receivingDocUrl) currentErrors.push("receivingDocUrl");
+        }
     }
 
     // Stage 6: Return Load
-    if (editData.returnWarehouseDetails || editData.returnLoadMaterialDetails || editData.returnLoadQuantity) {
-         if (!editData.returnWarehouseDetails) currentErrors.push("returnWarehouseDetails");
+    if (perms.returnLoad === "write") {
+        if (editData.returnWarehouseDetails || editData.returnLoadMaterialDetails || editData.returnLoadQuantity) {
+             if (!editData.returnWarehouseDetails) currentErrors.push("returnWarehouseDetails");
+        }
     }
-    if (editData.returnLoadReceivedStatus || editData.returnLoadDocument || editData.returnLoadReceivedDate) {
-         if (!editData.returnLoadReceivedStatus) currentErrors.push("returnLoadReceivedStatus");
-         if (!editData.returnLoadReceivedDate) currentErrors.push("returnLoadReceivedDate");
-         if (!editData.returnLoadDocument) currentErrors.push("returnLoadDocument");
+    if (isAssignedWarehouse || perms.returnLoad === "write" || profile?.role === "admin") {
+        if (editData.returnLoadReceivedStatus || editData.returnLoadDocument || editData.returnLoadReceivedDate) {
+             if (!editData.returnLoadReceivedStatus) currentErrors.push("returnLoadReceivedStatus");
+             if (!editData.returnLoadReceivedDate) currentErrors.push("returnLoadReceivedDate");
+             if (!editData.returnLoadDocument) currentErrors.push("returnLoadDocument");
+        }
     }
 
     // Stage 8: Completion
-    if (editData.emptyContainerReturnTime || editData.emptyContainerEirUrl) {
-         if (!editData.emptyContainerReturnTime) currentErrors.push("emptyContainerReturnTime");
-         if (!editData.emptyContainerEirUrl) currentErrors.push("emptyContainerEirUrl");
+    if (perms.completion === "write") {
+        if (editData.emptyContainerReturnTime || editData.emptyContainerEirUrl) {
+             if (!editData.emptyContainerReturnTime) currentErrors.push("emptyContainerReturnTime");
+             if (!editData.emptyContainerEirUrl) currentErrors.push("emptyContainerEirUrl");
+        }
     }
 
     if (currentErrors.length > 0) {
@@ -835,15 +845,16 @@ const ShipmentRow = ({
         timestamp: new Date().toISOString(),
       };
 
-      await setDoc(
-        doc(db, "shipments", shipment.id),
-        {
-          ...updates,
-          history: arrayUnion(historyEntry),
-          updatedAt: Timestamp.now(),
-        },
-        { merge: true },
-      );
+      const changedFields = {};
+      Object.keys(updates).forEach(key => {
+        if (updates[key] !== shipment[key]) {
+          changedFields[key] = updates[key];
+        }
+      });
+      changedFields.history = arrayUnion(historyEntry);
+      changedFields.updatedAt = Timestamp.now();
+
+      await updateDoc(doc(db, "shipments", shipment.id), changedFields);
       // Automatic Alerts for Next Section
       if (!shipment.clearanceDate && editData.clearanceDate) {
         // Clearing completed -> Notify Dispatchers/Admins for Assignment
@@ -1062,7 +1073,7 @@ const ShipmentRow = ({
               </div>
             )}
           </div>
-          {Object.values(perms).some((v) => v === "write") &&
+          {(Object.values(perms).some((v) => v === "write") || isAssignedWarehouse) &&
             (isEditing ? (
               <div className="flex gap-1.5">
                 <button
@@ -2002,7 +2013,7 @@ const ShipmentRow = ({
                       onChange={(e) => setEditData({ ...editData, returnLoadReceivedDate: e.target.value })}
                     />
                     <div className={cn(
-                      currentErrors.includes("returnLoadDocument") && "border-2 border-red-500 rounded-lg"
+                      validationErrors.includes("returnLoadDocument") && "border-2 border-red-500 rounded-lg"
                     )}>
                       <FileUploader
                         label={editData.returnLoadDocumentName || "Attach Document * (Req. for Complete)"}
