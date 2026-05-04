@@ -2766,6 +2766,80 @@ const ShipmentRow = ({
   );
 };
 
+const SLIDES = [
+  {
+    title: "Global Supply Chain Network",
+    description: "Connecting over 150 countries with seamless end-to-end logistics solutions, ensuring your cargo reaches its destination efficiently.",
+    icon: Truck,
+  },
+  {
+    title: "Real-Time Tracking & Visibility",
+    description: "Monitor your shipments 24/7 with our advanced tracking systems, providing precise location and condition status.",
+    icon: MapPin,
+  },
+  {
+    title: "Optimized Route Planning",
+    description: "Our systems calculate the most cost-effective and fastest routes, minimizing transit times and reducing costs.",
+    icon: TrendingUp,
+  },
+  {
+    title: "Automated Custom Clearance",
+    description: "Streamline borders with automated documentation processing and real-time compliance checking to prevent delays.",
+    icon: CheckCircle2,
+  },
+];
+
+const LogisticsSlideshow = () => {
+  const [currentSlide, setCurrentSlide] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % SLIDES.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="w-full bg-zinc-900 rounded-2xl overflow-hidden shadow-lg border border-zinc-800 aspect-video md:aspect-[21/9] relative group flex items-center justify-center">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentSlide}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 1.05 }}
+          transition={{ duration: 0.5, ease: "easeInOut" }}
+          className="text-center px-6 max-w-2xl absolute inset-0 flex flex-col items-center justify-center"
+        >
+          {React.createElement(SLIDES[currentSlide].icon, { className: "w-16 h-16 text-orange-500 mb-6 opacity-90 drop-shadow-[0_0_15px_rgba(249,115,22,0.5)]" })}
+          <h2 className="text-3xl md:text-5xl font-bold text-white mb-4 tracking-tight drop-shadow-md">
+            {SLIDES[currentSlide].title}
+          </h2>
+          <p className="text-zinc-300 text-sm md:text-lg leading-relaxed max-w-xl mx-auto">
+            {SLIDES[currentSlide].description}
+          </p>
+        </motion.div>
+      </AnimatePresence>
+
+      <div className="absolute bottom-6 flex gap-3 z-10">
+        {SLIDES.map((_, idx) => (
+          <button
+            key={idx}
+            onClick={() => setCurrentSlide(idx)}
+            className="group py-2"
+          >
+            <div
+              className={cn(
+                "h-1.5 rounded-full transition-all duration-300 shadow-sm",
+                idx === currentSlide ? "w-10 bg-orange-500" : "w-3 bg-zinc-600 group-hover:bg-zinc-500 group-hover:w-5"
+              )}
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const DashboardView = ({
   shipments,
   vessels,
@@ -2860,10 +2934,12 @@ const DashboardView = ({
     )[0];
 
   const totalRemaining = vessels.reduce((acc, v) => {
-    const picked = filteredShipments.filter(
-      (s) => s.vesselName === v.name && s.actualPickupTime,
-    ).length;
-    return acc + (v.totalContainers - picked);
+    const vesselShipments = filteredShipments.filter(
+      (s) => s.vesselName === v.name
+    );
+    const totalForVessel = profile?.role === "transporter" ? vesselShipments.length : v.totalContainers;
+    const picked = vesselShipments.filter((s) => s.actualPickupTime).length;
+    return acc + (totalForVessel - picked);
   }, 0);
 
   const generateSparkline = (base, volatility) => {
@@ -2959,8 +3035,8 @@ const DashboardView = ({
 
   return (
     <div className="space-y-8">
-      {/* 3D Global Logistics Map */}
-      <LiveTrackingMap shipments={shipments} />
+      {/* Logistics Presentation Slideshow */}
+      <LogisticsSlideshow />
 
       {/* Analytics Header & Quick Actions */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
@@ -3465,10 +3541,14 @@ const DashboardView = ({
               {selectedStat === "Containers Remaining" && (
                 <div className="space-y-6">
                   {vessels.map((v) => {
-                    const picked = filteredShipments.filter(
-                      (s) => s.vesselName === v.name && s.actualPickupTime,
-                    ).length;
-                    const remaining = v.totalContainers - picked;
+                    const vesselShipments = filteredShipments.filter(
+                      (s) => s.vesselName === v.name
+                    );
+                    const totalForVessel = profile?.role === "transporter" ? vesselShipments.length : v.totalContainers;
+                    if (profile?.role === "transporter" && totalForVessel === 0) return null;
+
+                    const picked = vesselShipments.filter((s) => s.actualPickupTime).length;
+                    const remaining = totalForVessel - picked;
                     return (
                       <div key={v.id} className="space-y-3">
                         <div className="flex justify-between items-end">
@@ -3493,13 +3573,13 @@ const DashboardView = ({
                           <div
                             className="h-full bg-orange-500 transition-all duration-500"
                             style={{
-                              width: `${(picked / v.totalContainers) * 100}%`,
+                              width: `${totalForVessel > 0 ? (picked / totalForVessel) * 100 : 0}%`,
                             }}
                           />
                         </div>
                         <div className="flex justify-between text-[10px] text-zinc-400 font-mono">
                           <span>Picked: {picked}</span>
-                          <span>Total: {v.totalContainers}</span>
+                          <span>Total: {totalForVessel}</span>
                         </div>
                       </div>
                     );
