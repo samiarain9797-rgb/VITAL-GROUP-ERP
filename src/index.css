@@ -13,3 +13,21 @@
     border-radius: 20px;
   }
 }
+
+/* Validation Highlights */
+.shipment-row-container[data-invalid~="containerNumber"] input[placeholder="Container # *"],
+.shipment-row-container[data-invalid~="containerSizeAndType"] input[placeholder="Size & Type"],
+.shipment-row-container[data-invalid~="numberOfPackages"] input[placeholder="No. of Packages *"],
+.shipment-row-container[data-invalid~="commodityDescription"] textarea[placeholder="Commodity Description *"],
+.shipment-row-container[data-invalid~="vehicleNumber"] input[placeholder="Vehicle # *"],
+.shipment-row-container[data-invalid~="driverName"] input[placeholder="Driver Name *"],
+.shipment-row-container[data-invalid~="driverPhone"] input[placeholder="Driver Phone *"],
+.shipment-row-container[data-invalid~="unloadingPoint"] input[placeholder="Location *"],
+.shipment-row-container[data-invalid~="returnWarehouseDetails"] select,
+.shipment-row-container[data-invalid~="returnLoadReceivedStatus"] select,
+.shipment-row-container[data-invalid~="returnLoadReceivedDate"] input[type="date"]
+{
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
+  outline: none !important;
+}

@@ -227,7 +227,7 @@ const DEFAULT_PERMISSIONS = {
     assignment: "read",
     transit: "read",
     unloading: "write",
-    returnLoad: "none",
+    returnLoad: "write",
     completion: "none",
     canCreateShipments: false,
     canManageUsers: false,
@@ -387,6 +387,8 @@ const ShipmentRow = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editData, setEditData] = useState(shipment);
   const [showContainerPopup, setShowContainerPopup] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [validationModal, setValidationModal] = useState(null);
 
   const loadedVessel = useMemo(() => {
     if (!editData.vesselName || !editData.arrivalDate) return null;
@@ -403,13 +405,22 @@ const ShipmentRow = ({
     startDateStr,
     totalDays,
     completionDateStr,
+    inclusive = false
   ) => {
     if (!startDateStr) return null;
     const start = new Date(startDateStr);
     if (isNaN(start.getTime())) return null;
     const now = completionDateStr ? new Date(completionDateStr) : new Date();
-    const diffTime = now.getTime() - start.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Use Math.round to avoid issues with daylight saving time when not using UTC
+    const utcStart = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+    const utcNow = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    const diffTime = utcNow - utcStart;
+    let diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (inclusive) diffDays += 1;
+    
     return totalDays - diffDays;
   };
 
@@ -417,11 +428,13 @@ const ShipmentRow = ({
     shipment.arrivalDate,
     10,
     shipment.actualLiftingTime || shipment.actualPickupTime,
+    true
   );
   const detentionDays = calculateDaysRemaining(
     shipment.arrivalDate,
     21,
     shipment.emptyContainerReturnTime,
+    false
   );
 
   const calculateTotalShipmentDays = (liftDateStr, gateInDateStr) => {
@@ -695,13 +708,62 @@ const ShipmentRow = ({
   };
 
   const handleSave = async () => {
-    // Stage 1: Basic validation for ANY edit matching the user's role permission
+    const currentErrors = [];
+
+    // Stage 1: Planning
     if (perms.planning === "write" && shipment.type !== "local") {
-        if (!editData.containerNumber || !editData.containerSizeAndType) {
-            alert("Container Number and Container Size & Type are mandatory fields.");
-            return;
-        }
+        if (!editData.containerNumber) currentErrors.push("containerNumber");
+        if (!editData.containerSizeAndType) currentErrors.push("containerSizeAndType");
     }
+
+    // Stage 2: Clearing
+    if (editData.grossWeight || editData.numberOfPackages || editData.commodityDescription) {
+        if (!editData.numberOfPackages) currentErrors.push("numberOfPackages");
+        if (!editData.commodityDescription) currentErrors.push("commodityDescription");
+    }
+
+    // Stage 4: Transit
+    if (editData.vehicleNumber || editData.vehicleType || editData.driverName || editData.driverPhone || editData.driverIdCardUrl || editData.actualPickupTime || editData.actualLiftingTime) {
+        if (!editData.vehicleNumber) currentErrors.push("vehicleNumber");
+        if (!editData.vehicleType) currentErrors.push("vehicleType");
+        if (!editData.driverName) currentErrors.push("driverName");
+        if (!editData.driverPhone) currentErrors.push("driverPhone");
+        if (!editData.driverIdCardUrl) currentErrors.push("driverIdCardUrl");
+        if (shipment.type === 'local' && !editData.actualLiftingTime) currentErrors.push("actualLiftingTime");
+        if (shipment.type !== 'local' && !editData.actualPickupTime) currentErrors.push("actualPickupTime");
+    }
+
+    // Stage 5: Unloading
+    if (editData.unloadingLocation || editData.unloadingPoint || editData.factoryGateInTime || editData.factoryGateOutTime || editData.unloadingDate || editData.receivingDocUrl) {
+         if (!editData.unloadingLocation && !editData.unloadingPoint) currentErrors.push("unloadingPoint");
+         if (!editData.factoryGateInTime) currentErrors.push("factoryGateInTime");
+         if (!editData.factoryGateOutTime) currentErrors.push("factoryGateOutTime");
+         if (!editData.unloadingDate) currentErrors.push("unloadingDate");
+         if (!editData.receivingDocUrl) currentErrors.push("receivingDocUrl");
+    }
+
+    // Stage 6: Return Load
+    if (editData.returnWarehouseDetails || editData.returnLoadMaterialDetails || editData.returnLoadQuantity) {
+         if (!editData.returnWarehouseDetails) currentErrors.push("returnWarehouseDetails");
+    }
+    if (editData.returnLoadReceivedStatus || editData.returnLoadDocument || editData.returnLoadReceivedDate) {
+         if (!editData.returnLoadReceivedStatus) currentErrors.push("returnLoadReceivedStatus");
+         if (!editData.returnLoadReceivedDate) currentErrors.push("returnLoadReceivedDate");
+         if (!editData.returnLoadDocument) currentErrors.push("returnLoadDocument");
+    }
+
+    // Stage 8: Completion
+    if (editData.emptyContainerReturnTime || editData.emptyContainerEirUrl) {
+         if (!editData.emptyContainerReturnTime) currentErrors.push("emptyContainerReturnTime");
+         if (!editData.emptyContainerEirUrl) currentErrors.push("emptyContainerEirUrl");
+    }
+
+    if (currentErrors.length > 0) {
+        setValidationErrors(currentErrors);
+        setValidationModal("Please fill out all mandatory fields marked with red borders before saving.");
+        return;
+    }
+    setValidationErrors([]);
 
     // Auto-calculate the status based on data presence
     const isPlanningComplete = !!(editData.containerNumber && editData.containerSizeAndType);
@@ -711,7 +773,7 @@ const ShipmentRow = ({
     const isUnloadingComplete = !!((editData.unloadingLocation || editData.unloadingPoint) && editData.factoryGateInTime && editData.factoryGateOutTime && editData.unloadingDate && editData.receivingDocUrl);
     
     const hasReturnLoadPlanned = !!(editData.returnWarehouseDetails);
-    const isReturnLoadReceived = hasReturnLoadPlanned && !!(editData.returnLoadReceivedStatus && editData.returnLoadDocument);
+    const isReturnLoadReceived = hasReturnLoadPlanned && !!(editData.returnLoadReceivedStatus && editData.returnLoadDocument && editData.returnLoadReceivedDate);
     const isContainerReturned = !!(editData.emptyContainerReturnTime && editData.emptyContainerEirUrl);
 
     let newStatus = "Waiting for Clearing";
@@ -924,7 +986,10 @@ const ShipmentRow = ({
   };
 
   return (
-    <div className="bg-white border-2 border-zinc-200 rounded-xl overflow-hidden shadow-[0_4px_0_rgb(228,228,231)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(228,228,231)] transition-all mb-4">
+    <div
+      data-invalid={validationErrors.join(" ")}
+      className="shipment-row-container bg-white border-2 border-zinc-200 rounded-xl overflow-hidden shadow-[0_4px_0_rgb(228,228,231)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(228,228,231)] transition-all mb-4"
+    >
       <div className="p-3 border-b border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row md:justify-between items-start md:items-center gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="px-2 py-0.5 bg-zinc-100 rounded text-[10px] font-mono text-zinc-600 uppercase tracking-wider font-medium">
@@ -1936,10 +2001,14 @@ const ShipmentRow = ({
                       value={editData.returnLoadReceivedDate || ""}
                       onChange={(e) => setEditData({ ...editData, returnLoadReceivedDate: e.target.value })}
                     />
-                    <FileUploader
-                      label={editData.returnLoadDocumentName || "Attach Document * (Req. for Complete)"}
-                      onUpload={(base64, name) => setEditData({ ...editData, returnLoadDocument: base64, returnLoadDocumentName: name })}
-                    />
+                    <div className={cn(
+                      currentErrors.includes("returnLoadDocument") && "border-2 border-red-500 rounded-lg"
+                    )}>
+                      <FileUploader
+                        label={editData.returnLoadDocumentName || "Attach Document * (Req. for Complete)"}
+                        onUpload={(base64, name) => setEditData({ ...editData, returnLoadDocument: base64, returnLoadDocumentName: name })}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -2725,6 +2794,24 @@ const ShipmentRow = ({
         </div>
       </div>
 
+      {validationModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl flex flex-col gap-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto text-red-600">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-zinc-900">Mandatory Fields Missing</h3>
+            <p className="text-sm text-zinc-600">{validationModal}</p>
+            <button
+              onClick={() => setValidationModal(null)}
+              className="mt-2 w-full py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors"
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Container Selection Popup */}
       {showContainerPopup && loadedVessel && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
@@ -3248,69 +3335,68 @@ const DashboardView = ({
               <h3 className="text-lg font-bold text-zinc-900">Demurrage & Detention Alerts</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredShipments.filter(s => {
-                const start = s.arrivalDate ? new Date(s.arrivalDate) : null;
-                if (!start) return false;
-                const stop = (s.actualLiftingTime || s.actualPickupTime) ? new Date(s.actualLiftingTime || s.actualPickupTime) : new Date();
-                const diffDays = Math.floor((stop.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-                const remaining = 10 - diffDays;
-                return remaining < 3 && !(s.actualLiftingTime || s.actualPickupTime);
-              }).map(s => {
-                const start = new Date(s.arrivalDate);
-                const diffDays = Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-                const remaining = 10 - diffDays;
-                return (
-                  <div key={s.id} className="p-3 bg-red-50 border border-red-100 rounded-xl flex justify-between items-center">
-                    <div>
-                      <div className="text-xs font-bold text-red-900">{s.trackingId}</div>
-                      <div className="text-[10px] text-red-600">Demurrage Risk</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-black text-red-600">{remaining < 0 ? 'LATE' : `${remaining}d left`}</div>
-                    </div>
-                  </div>
-                );
-              })}
-              {filteredShipments.filter(s => {
-                const start = (s.actualLiftingTime || s.actualPickupTime) ? new Date(s.actualLiftingTime || s.actualPickupTime) : null;
-                if (!start) return false;
-                const stop = s.emptyContainerReturnTime ? new Date(s.emptyContainerReturnTime) : new Date();
-                const diffDays = Math.floor((stop.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-                const remaining = 14 - diffDays;
-                return remaining < 5 && !s.emptyContainerReturnTime;
-              }).map(s => {
-                const start = new Date(s.actualLiftingTime || s.actualPickupTime);
-                const diffDays = Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-                const remaining = 14 - diffDays;
-                return (
-                  <div key={s.id} className="p-3 bg-orange-50 border border-orange-100 rounded-xl flex justify-between items-center">
-                    <div>
-                      <div className="text-xs font-bold text-orange-900">{s.trackingId}</div>
-                      <div className="text-[10px] text-orange-600">Detention Risk</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-black text-orange-600">{remaining < 0 ? 'LATE' : `${remaining}d left`}</div>
-                    </div>
-                  </div>
-                );
-              })}
-              {filteredShipments.filter(s => {
-                const start1 = s.arrivalDate ? new Date(s.arrivalDate) : null;
-                const stop1 = (s.actualLiftingTime || s.actualPickupTime) ? new Date(s.actualLiftingTime || s.actualPickupTime) : new Date();
-                const rem1 = start1 ? 10 - Math.floor((stop1.getTime() - start1.getTime()) / (1000 * 60 * 60 * 24)) : null;
-                const risk1 = rem1 !== null && rem1 < 3 && !(s.actualLiftingTime || s.actualPickupTime);
+              {(() => {
+                const calculateDaysRem = (startDateStr, totalDays, completionDateStr, inclusive) => {
+                  if (!startDateStr) return null;
+                  const start = new Date(startDateStr);
+                  if (isNaN(start.getTime())) return null;
+                  const now = completionDateStr ? new Date(completionDateStr) : new Date();
+                  const utcStart = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+                  const utcNow = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+                  let diffDays = Math.floor((utcNow - utcStart) / (1000 * 60 * 60 * 24));
+                  if (inclusive) diffDays += 1;
+                  return totalDays - diffDays;
+                };
 
-                const start2 = (s.actualLiftingTime || s.actualPickupTime) ? new Date(s.actualLiftingTime || s.actualPickupTime) : null;
-                const stop2 = s.emptyContainerReturnTime ? new Date(s.emptyContainerReturnTime) : new Date();
-                const rem2 = start2 ? 14 - Math.floor((stop2.getTime() - start2.getTime()) / (1000 * 60 * 60 * 24)) : null;
-                const risk2 = rem2 !== null && rem2 < 5 && !s.emptyContainerReturnTime;
+                const riskShipments = filteredShipments.map(s => {
+                  const demurrageDays = calculateDaysRem(s.arrivalDate, 10, s.actualLiftingTime || s.actualPickupTime, true);
+                  const isDemurrageRisk = demurrageDays !== null && demurrageDays <= 3 && !(s.actualLiftingTime || s.actualPickupTime);
 
-                return risk1 || risk2;
-              }).length === 0 && (
-                <div className="col-span-full text-center py-4 text-zinc-500 text-sm">
-                  No shipments currently at risk of demurrage or detention.
-                </div>
-              )}
+                  const detentionDays = calculateDaysRem(s.arrivalDate, 21, s.emptyContainerReturnTime, false);
+                  const isDetentionRisk = detentionDays !== null && detentionDays <= 5 && !s.emptyContainerReturnTime;
+
+                  return { s, demurrageDays, isDemurrageRisk, detentionDays, isDetentionRisk };
+                }).filter(item => item.isDemurrageRisk || item.isDetentionRisk);
+
+                if (riskShipments.length === 0) {
+                  return (
+                    <div className="col-span-full text-center py-4 text-zinc-500 text-sm">
+                      No shipments currently at risk of demurrage or detention.
+                    </div>
+                  );
+                }
+
+                return riskShipments.map(({ s, demurrageDays, isDemurrageRisk, detentionDays, isDetentionRisk }) => (
+                  <React.Fragment key={s.id}>
+                    {isDemurrageRisk && (
+                      <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex justify-between items-center">
+                        <div>
+                          <div className="text-xs font-bold text-red-900">{s.trackingId}</div>
+                          <div className="text-[10px] text-red-600">Demurrage Risk</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-black text-red-600">
+                            {demurrageDays < 0 ? 'LATE' : `${demurrageDays}d left`}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {isDetentionRisk && (
+                      <div className="p-3 bg-orange-50 border border-orange-100 rounded-xl flex justify-between items-center">
+                        <div>
+                          <div className="text-xs font-bold text-orange-900">{s.trackingId}</div>
+                          <div className="text-[10px] text-orange-600">Detention Risk</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-black text-orange-600">
+                            {detentionDays < 0 ? 'LATE' : `${detentionDays}d left`}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                ));
+              })()}
             </div>
           </div>
 
@@ -4941,6 +5027,8 @@ function ShipmentsView({
   const [selectedVesselData, setSelectedVesselData] = useState(null);
   const [selectedContainers, setSelectedContainers] = useState([]);
   const [showCreatePopup, setShowCreatePopup] = useState(false);
+  const [newShipmentErrors, setNewShipmentErrors] = useState([]);
+  const [creationModal, setCreationModal] = useState("");
 
   const handleLoadData = () => {
     if (newShipment.vesselName && newShipment.arrivalDate) {
@@ -4969,10 +5057,17 @@ function ShipmentsView({
       const loadingPoint = newShipment.loadingPoint || '';
       const unloadingPoint = newShipment.unloadingPoint || '';
 
-      if (!companyName || !loadingPoint || !unloadingPoint) {
-        alert("Please select Company, Loading Point, and Unloading Point.");
+      const errors = [];
+      if (!companyName) errors.push("companyName");
+      if (!loadingPoint) errors.push("loadingPoint");
+      if (!unloadingPoint) errors.push("unloadingPoint");
+
+      if (errors.length > 0) {
+        setNewShipmentErrors(errors);
+        setCreationModal("Please fill out all mandatory fields marked with red borders to create new shipments.");
         return;
       }
+      setNewShipmentErrors([]);
 
       for (const item of selectedContainers) {
         const trackingId = `SHP-${Math.floor(Math.random() * 100000)}`;
@@ -5037,10 +5132,17 @@ function ShipmentsView({
       const loadingPoint = newShipment.loadingPoint || '';
       const unloadingPoint = newShipment.unloadingPoint || '';
 
-      if (!companyName || !loadingPoint || !unloadingPoint) {
-        alert("Please select Company, Loading Point, and Unloading Point.");
+      const errors = [];
+      if (!companyName) errors.push("companyName");
+      if (!loadingPoint) errors.push("loadingPoint");
+      if (!unloadingPoint) errors.push("unloadingPoint");
+
+      if (errors.length > 0) {
+        setNewShipmentErrors(errors);
+        setCreationModal("Please fill out all mandatory fields marked with red borders to create a local shipment.");
         return;
       }
+      setNewShipmentErrors([]);
 
       const trackingId = `LOC-${Math.floor(Math.random() * 100000)}`;
       const historyEntry = {
@@ -5320,9 +5422,9 @@ function ShipmentsView({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-700 mb-1">Company *</label>
+              <label className={cn("block text-xs font-medium text-zinc-700 mb-1", newShipmentErrors.includes('companyName') && "text-red-500 font-bold")}>Company *</label>
               <select
-                className="w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]"
+                className={cn("w-full bg-white border-2 border-zinc-200 rounded-xl px-4 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-orange-500 transition-all shadow-[0_4px_0_rgb(228,228,231)] focus:-translate-y-[2px] focus:shadow-[0_6px_0_rgb(249,115,22)]", newShipmentErrors.includes('companyName') && "!border-red-500 ring-2 ring-red-500/20 shadow-none")}
                 value={newShipment.companyName || ""}
                 onChange={(e) =>
                   setNewShipment({
@@ -5343,23 +5445,27 @@ function ShipmentsView({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-zinc-700">Loading Point *</label>
-              <SearchableSelect
-                options={locationOptions}
-                value={newShipment.loadingPoint}
-                onChange={(val) => setNewShipment({ ...newShipment, loadingPoint: val })}
-                placeholder="Search Loading Point..."
-              />
+              <label className={cn("block text-xs font-medium text-zinc-700", newShipmentErrors.includes('loadingPoint') && "text-red-500 font-bold")}>Loading Point *</label>
+              <div className={cn("rounded-xl transition-all", newShipmentErrors.includes('loadingPoint') && "ring-2 ring-red-500/20 shadow-[0_0_0_2px_#ef4444]")}>
+                <SearchableSelect
+                  options={locationOptions}
+                  value={newShipment.loadingPoint}
+                  onChange={(val) => setNewShipment({ ...newShipment, loadingPoint: val })}
+                  placeholder="Search Loading Point..."
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-zinc-700">Unloading Point *</label>
-              <SearchableSelect
-                options={locationOptions}
-                value={newShipment.unloadingPoint}
-                onChange={(val) => setNewShipment({ ...newShipment, unloadingPoint: val })}
-                placeholder="Search Unloading Point..."
-              />
+              <label className={cn("block text-xs font-medium text-zinc-700", newShipmentErrors.includes('unloadingPoint') && "text-red-500 font-bold")}>Unloading Point *</label>
+              <div className={cn("rounded-xl transition-all", newShipmentErrors.includes('unloadingPoint') && "ring-2 ring-red-500/20 shadow-[0_0_0_2px_#ef4444]")}>
+                <SearchableSelect
+                  options={locationOptions}
+                  value={newShipment.unloadingPoint}
+                  onChange={(val) => setNewShipment({ ...newShipment, unloadingPoint: val })}
+                  placeholder="Search Unloading Point..."
+                />
+              </div>
             </div>
           </div>
 
@@ -5538,6 +5644,25 @@ function ShipmentsView({
               Cancel
             </button>
           </div>
+          </div>
+        </div>
+      )}
+
+      {/* Creation Validation Modal */}
+      {creationModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl flex flex-col gap-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto text-red-600">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-zinc-900">Mandatory Fields Missing</h3>
+            <p className="text-sm text-zinc-600">{creationModal}</p>
+            <button
+              onClick={() => setCreationModal("")}
+              className="mt-2 w-full py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors"
+            >
+              Okay
+            </button>
           </div>
         </div>
       )}
