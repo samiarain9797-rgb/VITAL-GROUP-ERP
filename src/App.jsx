@@ -980,7 +980,7 @@ const ShipmentRow = ({
                 <Truck size={10} />
                 {shipment.actualLiftingTime || shipment.actualPickupTime
                   ? "LIFTED"
-                  : `${demurrageDays}D LIFTING`}
+                  : demurrageDays === 0 ? "LAST DAY" : `${demurrageDays}D LIFTING`}
               </div>
             )}
             {detentionDays !== null && (
@@ -2578,7 +2578,7 @@ const ShipmentRow = ({
                                 : "text-zinc-600",
                           )}
                         >
-                          {demurrageDays !== null ? `${demurrageDays} Days` : "-"}
+                          {demurrageDays !== null ? (demurrageDays === 0 ? "LAST DAY" : `${demurrageDays} Days`) : "-"}
                         </td>
                         <td className="py-2">
                           {demurrageDays !== null && demurrageDays < 0 ? (
@@ -3297,7 +3297,7 @@ const DashboardView = ({
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-black text-red-600">
-                            {demurrageDays < 0 ? 'LATE' : `${demurrageDays}d left`}
+                            {demurrageDays < 0 ? 'LATE' : (demurrageDays === 0 ? 'LAST DAY' : `${demurrageDays}d left`)}
                           </div>
                         </div>
                       </div>
