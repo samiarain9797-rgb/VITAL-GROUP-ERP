@@ -147,6 +147,44 @@ const createNotification = async (userId, title, message, type, link) => {
   }
 };
 
+const DEFAULT_SHIPMENT_FIELDS = {
+  blNumber: { label: "B/L Number", required: true, visible: true },
+  containerNumber: { label: "Container Number", required: true, visible: true },
+  containerSizeAndType: { label: "Size/Type", required: true, visible: true },
+  grossWeight: { label: "Gross Weight (KG)", required: false, visible: true },
+  numberOfPackages: { label: "Number of Packages", required: false, visible: true },
+  commodityDescription: { label: "Commodity Description", required: false, visible: true },
+  dutyPayDate: { label: "Duty Pay Date", required: false, visible: true },
+  clearanceDate: { label: "Clearance Date", required: false, visible: true },
+  portGateInTime: { label: "Port Gate In", required: false, visible: true },
+  portGateOutTime: { label: "Port Gate Out", required: false, visible: true },
+  clearingAgentId: { label: "Clearing Agent", required: false, visible: true },
+  transporterId: { label: "Transporter", required: false, visible: true },
+  vehicleNumber: { label: "Vehicle Number", required: true, visible: true },
+  vehicleType: { label: "Vehicle Type", required: true, visible: true },
+  driverName: { label: "Driver Name", required: true, visible: true },
+  driverPhone: { label: "Driver Phone", required: true, visible: true },
+  estimatedLiftingTime: { label: "Estimated Lifting Time", required: false, visible: true },
+  actualLiftingTime: { label: "Actual Lifting Time", required: false, visible: true },
+  liveTrackingUrl: { label: "Live Tracking URL", required: false, visible: true },
+  driverIdCardUrl: { label: "Driver ID Card", required: true, visible: true },
+  transporterDocs: { label: "Transporter Docs", required: true, visible: true },
+  unloadingLocation: { label: "Unloading Location", required: true, visible: true },
+  unloadingPoint: { label: "Unloading Point", required: true, visible: true },
+  factoryGateInTime: { label: "Factory Gate In", required: true, visible: true },
+  factoryGateOutTime: { label: "Factory Gate Out", required: true, visible: true },
+  unloadingDate: { label: "Unloading Date", required: true, visible: true },
+  receivingDocUrl: { label: "Receiving Doc", required: true, visible: true },
+  returnWarehouseDetails: { label: "Return Warehouse", required: true, visible: true },
+  returnLoadMaterialDetails: { label: "Return Load Material", required: false, visible: true },
+  returnLoadQuantity: { label: "Return Load Quantity", required: false, visible: true },
+  returnLoadReceivedStatus: { label: "Return Load Status", required: true, visible: true },
+  returnLoadReceivedDate: { label: "Return Load Date", required: true, visible: true },
+  returnLoadDocument: { label: "Return Load Document", required: true, visible: true },
+  emptyContainerReturnTime: { label: "Empty Container Return", required: false, visible: true },
+  emptyContainerEirUrl: { label: "EIR Scan", required: false, visible: true },
+};
+
 const DEFAULT_PERMISSIONS = {
   admin: {
     planning: "write",
@@ -387,6 +425,8 @@ const ShipmentRow = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editData, setEditData] = useState(shipment);
   const [showContainerPopup, setShowContainerPopup] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [validationModal, setValidationModal] = useState(null);
 
   const loadedVessel = useMemo(() => {
     if (!editData.vesselName || !editData.arrivalDate) return null;
@@ -706,6 +746,85 @@ const ShipmentRow = ({
   };
 
   const handleSave = async () => {
+    const currentErrors = [];
+
+    const isRequired = (field) => {
+      // Check if config explicitly marks it required and it is visible. By default fall back to false unless checking strict rules.
+      const config = formConfig?.shipments?.[field] || DEFAULT_SHIPMENT_FIELDS[field];
+      return (config?.visible !== false) && (config?.required === true);
+    };
+
+    // Stage 1: Planning
+    if (perms.planning === "write" && shipment.type !== "local") {
+        if (editData.containerNumber || editData.containerSizeAndType || isRequired("containerNumber") || isRequired("containerSizeAndType")) {
+            if (isRequired("containerNumber") && !editData.containerNumber) currentErrors.push("containerNumber");
+            if (isRequired("containerSizeAndType") && !editData.containerSizeAndType) currentErrors.push("containerSizeAndType");
+        }
+    }
+
+    // Stage 2: Clearing
+    if (perms.clearing === "write" && shipment.type !== "local") {
+        if (editData.grossWeight || editData.numberOfPackages || editData.commodityDescription || editData.dutyPayDate || editData.clearanceDate || isRequired("numberOfPackages") || isRequired("commodityDescription") || isRequired("grossWeight")) {
+            if (isRequired("numberOfPackages") && !editData.numberOfPackages) currentErrors.push("numberOfPackages");
+            if (isRequired("commodityDescription") && !editData.commodityDescription) currentErrors.push("commodityDescription");
+            if (isRequired("grossWeight") && !editData.grossWeight) currentErrors.push("grossWeight");
+        }
+    }
+
+    // Stage 4: Transit
+    if (perms.transit === "write") {
+        // Assume if they have transit permission they are editing transit data
+        if (editData.vehicleNumber || editData.vehicleType || editData.driverName || editData.driverPhone || editData.driverIdCardUrl || editData.actualPickupTime || editData.actualLiftingTime || isRequired("vehicleNumber")) {
+            if (isRequired("vehicleNumber") && !editData.vehicleNumber) currentErrors.push("vehicleNumber");
+            if (isRequired("vehicleType") && !editData.vehicleType) currentErrors.push("vehicleType");
+            if (isRequired("driverName") && !editData.driverName) currentErrors.push("driverName");
+            if (isRequired("driverPhone") && !editData.driverPhone) currentErrors.push("driverPhone");
+            if (isRequired("driverIdCardUrl") && !editData.driverIdCardUrl) currentErrors.push("driverIdCardUrl");
+            if (isRequired("actualLiftingTime") && shipment.type === 'local' && !editData.actualLiftingTime) currentErrors.push("actualLiftingTime");
+            if (isRequired("actualPickupTime") && shipment.type !== 'local' && !editData.actualPickupTime) currentErrors.push("actualPickupTime");
+        }
+    }
+
+    // Stage 5: Unloading
+    if (perms.unloading === "write") {
+        if (editData.unloadingLocation || editData.unloadingPoint || editData.factoryGateInTime || editData.factoryGateOutTime || editData.unloadingDate || editData.receivingDocUrl || isRequired("factoryGateInTime")) {
+             if (isRequired("unloadingLocation") && !editData.unloadingLocation && !editData.unloadingPoint) currentErrors.push("unloadingPoint");
+             if (isRequired("factoryGateInTime") && !editData.factoryGateInTime) currentErrors.push("factoryGateInTime");
+             if (isRequired("factoryGateOutTime") && !editData.factoryGateOutTime) currentErrors.push("factoryGateOutTime");
+             if (isRequired("unloadingDate") && !editData.unloadingDate) currentErrors.push("unloadingDate");
+             if (isRequired("receivingDocUrl") && !editData.receivingDocUrl) currentErrors.push("receivingDocUrl");
+        }
+    }
+
+    // Stage 6: Return Load
+    if (perms.returnLoad === "write") {
+        if (editData.returnWarehouseDetails || editData.returnLoadMaterialDetails || editData.returnLoadQuantity || isRequired("returnWarehouseDetails")) {
+             if (isRequired("returnWarehouseDetails") && !editData.returnWarehouseDetails) currentErrors.push("returnWarehouseDetails");
+        }
+    }
+    if (isAssignedWarehouse || perms.returnLoad === "write" || profile?.role === "admin") {
+        if (editData.returnLoadReceivedStatus || editData.returnLoadDocument || editData.returnLoadReceivedDate || isRequired("returnLoadReceivedStatus")) {
+             if (isRequired("returnLoadReceivedStatus") && !editData.returnLoadReceivedStatus) currentErrors.push("returnLoadReceivedStatus");
+             if (isRequired("returnLoadReceivedDate") && !editData.returnLoadReceivedDate) currentErrors.push("returnLoadReceivedDate");
+             if (isRequired("returnLoadDocument") && !editData.returnLoadDocument) currentErrors.push("returnLoadDocument");
+        }
+    }
+
+    // Stage 8: Completion
+    if (perms.completion === "write" && shipment.type !== "local") {
+        if (editData.emptyContainerReturnTime || editData.emptyContainerEirUrl || isRequired("emptyContainerReturnTime")) {
+             if (isRequired("emptyContainerReturnTime") && !editData.emptyContainerReturnTime) currentErrors.push("emptyContainerReturnTime");
+             if (isRequired("emptyContainerEirUrl") && !editData.emptyContainerEirUrl) currentErrors.push("emptyContainerEirUrl");
+        }
+    }
+
+    if (currentErrors.length > 0) {
+        setValidationErrors(currentErrors);
+        setValidationModal("Please fill out all mandatory fields marked with red borders for the section you are currently editing.");
+        return;
+    }
+    setValidationErrors([]);
+
     // Auto-calculate the status based on data presence
     const isPlanningComplete = !!(editData.containerNumber && editData.containerSizeAndType);
     const isClearingComplete = !!(editData.grossWeight && editData.numberOfPackages && editData.commodityDescription);
@@ -929,6 +1048,7 @@ const ShipmentRow = ({
 
   return (
     <div
+      data-invalid={validationErrors.join(" ")}
       className="shipment-row-container bg-white border-2 border-zinc-200 rounded-xl overflow-hidden shadow-[0_4px_0_rgb(228,228,231)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(228,228,231)] transition-all mb-4"
     >
       <div className="p-3 border-b border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row md:justify-between items-start md:items-center gap-3">
@@ -999,7 +1119,7 @@ const ShipmentRow = ({
                 <Clock size={10} />
                 {shipment.emptyContainerReturnTime
                   ? "RETURNED"
-                  : `${detentionDays}D RETURN`}
+                  : detentionDays === 0 ? "LAST DAY" : `${detentionDays}D RETURN`}
               </div>
             )}
           </div>
@@ -1942,7 +2062,7 @@ const ShipmentRow = ({
                       value={editData.returnLoadReceivedDate || ""}
                       onChange={(e) => setEditData({ ...editData, returnLoadReceivedDate: e.target.value })}
                     />
-                    <div className="border-0">
+                    <div className={cn(validationErrors.includes("returnLoadDocument") && "border-2 border-red-500 rounded-lg")}>
                       <FileUploader
                         label={editData.returnLoadDocumentName || "Attach Document * (Req. for Complete)"}
                         onUpload={(base64, name) => setEditData({ ...editData, returnLoadDocument: base64, returnLoadDocumentName: name })}
@@ -2618,7 +2738,7 @@ const ShipmentRow = ({
                                 : "text-zinc-600",
                           )}
                         >
-                          {detentionDays !== null ? `${detentionDays} Days` : "-"}
+                          {detentionDays !== null ? (detentionDays === 0 ? "LAST DAY" : `${detentionDays} Days`) : "-"}
                         </td>
                         <td className="py-2">
                           {detentionDays !== null && detentionDays < 0 ? (
@@ -2732,6 +2852,24 @@ const ShipmentRow = ({
           </div>
         </div>
       </div>
+
+      {validationModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl flex flex-col gap-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto text-red-600">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-zinc-900">Mandatory Fields Missing</h3>
+            <p className="text-sm text-zinc-600">{validationModal}</p>
+            <button
+              onClick={() => setValidationModal(null)}
+              className="mt-2 w-full py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors"
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Container Selection Popup */}
       {showContainerPopup && loadedVessel && (
@@ -3310,7 +3448,7 @@ const DashboardView = ({
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-black text-orange-600">
-                            {detentionDays < 0 ? 'LATE' : `${detentionDays}d left`}
+                            {detentionDays < 0 ? 'LATE' : (detentionDays === 0 ? 'LAST DAY' : `${detentionDays}d left`)}
                           </div>
                         </div>
                       </div>
@@ -7339,6 +7477,7 @@ const SettingsView = ({ profile }) => {
   const [photoURL, setPhotoURL] = useState(profile?.photoURL || "");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const [showShipmentFields, setShowShipmentFields] = useState(false);
 
   // --- Form Configurations (Admin) ---
   const [formConfig, setFormConfig] = useState(null);
@@ -7349,37 +7488,14 @@ const SettingsView = ({ profile }) => {
         doc(db, "settings", "formConfig"),
         (docSnap) => {
           if (docSnap.exists()) {
-            setFormConfig(docSnap.data());
+            const data = docSnap.data();
+            setFormConfig({
+              ...data,
+              shipments: { ...DEFAULT_SHIPMENT_FIELDS, ...(data.shipments || {}) }
+            });
           } else {
             setFormConfig({
-              shipments: {
-                blNumber: { label: "B/L Number", required: true, visible: true },
-                containerNumber: { label: "Container Number", required: true, visible: true },
-                containerSizeAndType: { label: "Size/Type", required: true, visible: true },
-                grossWeight: { label: "Gross Weight (KG)", required: false, visible: true },
-                numberOfPackages: { label: "Number of Packages", required: false, visible: true },
-                commodityDescription: { label: "Commodity Description", required: false, visible: true },
-                dutyPayDate: { label: "Duty Pay Date", required: false, visible: true },
-                clearanceDate: { label: "Clearance Date", required: false, visible: true },
-                portGateInTime: { label: "Port Gate In", required: false, visible: true },
-                portGateOutTime: { label: "Port Gate Out", required: false, visible: true },
-                clearingAgentId: { label: "Clearing Agent", required: false, visible: true },
-                transporterId: { label: "Transporter", required: false, visible: true },
-                vehicleNumber: { label: "Vehicle Number", required: true, visible: true },
-                vehicleType: { label: "Vehicle Type", required: true, visible: true },
-                driverName: { label: "Driver Name", required: true, visible: true },
-                driverPhone: { label: "Driver Phone", required: true, visible: true },
-                estimatedLiftingTime: { label: "Estimated Lifting Time", required: false, visible: true },
-                actualLiftingTime: { label: "Actual Lifting Time", required: false, visible: true },
-                liveTrackingUrl: { label: "Live Tracking URL", required: false, visible: true },
-                factoryGateInTime: { label: "Factory Gate In", required: false, visible: true },
-                unloadingTime: { label: "Unloading Time", required: false, visible: true },
-                unloadingLocation: { label: "Unloading Location", required: false, visible: true },
-                factoryGateOutTime: { label: "Factory Gate Out", required: false, visible: true },
-                receiverId: { label: "Receiver", required: false, visible: true },
-                returnWarehouseDetails: { label: "Return Warehouse", required: false, visible: true },
-                emptyContainerReturnTime: { label: "Empty Container Return", required: false, visible: true },
-              }
+              shipments: DEFAULT_SHIPMENT_FIELDS
             });
           }
         },
@@ -7654,13 +7770,18 @@ const SettingsView = ({ profile }) => {
             <p className="text-sm text-zinc-600">Configure which fields are mandatory (required) and their display labels across the application.</p>
             
             <div className="space-y-4">
-              <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-widest">Shipment Fields</h4>
-              {Object.entries(formConfig.shipments || {}).map(([fieldKey, config]) => (
-                <div key={fieldKey} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end border-b border-zinc-100 pb-4">
-                  <div className="md:col-span-1">
-                    <label className="block text-[10px] font-mono text-zinc-500 uppercase">System Key</label>
-                    <div className="text-sm font-medium text-zinc-700 mt-1 bg-zinc-100 px-2 py-1 rounded inline-block">{fieldKey}</div>
-                  </div>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-widest">Shipment Fields</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowShipmentFields(!showShipmentFields)}
+                  className="px-3 py-1 bg-zinc-100 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200 text-xs font-medium rounded transition-colors"
+                >
+                  {showShipmentFields ? "Hide Fields" : "Show Fields"}
+                </button>
+              </div>
+              {showShipmentFields && Object.entries(formConfig.shipments || {}).map(([fieldKey, config]) => (
+                <div key={fieldKey} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end border-b border-zinc-100 pb-4 mt-4">
                   <div className="md:col-span-2">
                     <label className="block text-[10px] font-mono text-zinc-500 uppercase mb-1">Display Label</label>
                     <input
@@ -7696,6 +7817,8 @@ const SettingsView = ({ profile }) => {
                       />
                       <span className="text-sm text-zinc-700 font-medium whitespace-nowrap">Required</span>
                     </label>
+                  </div>
+                  <div className="md:col-span-1 flex flex-col justify-end gap-2 h-full pb-1">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -8349,10 +8472,14 @@ function MainApp() {
       doc(db, "settings", "formConfig"),
       (docSnap) => {
         if (docSnap.exists()) {
-          setFormConfig(docSnap.data());
+          const data = docSnap.data();
+          setFormConfig({
+            ...data,
+            shipments: { ...DEFAULT_SHIPMENT_FIELDS, ...(data.shipments || {}) }
+          });
         } else {
            // This serves as the fallback for rendering form items if no custom settings exist
-          setFormConfig({ shipments: {} });
+          setFormConfig({ shipments: DEFAULT_SHIPMENT_FIELDS });
         }
       },
       (error) => handleFirestoreError(error, OperationType.GET, "settings/formConfig")
