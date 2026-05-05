@@ -387,8 +387,6 @@ const ShipmentRow = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editData, setEditData] = useState(shipment);
   const [showContainerPopup, setShowContainerPopup] = useState(false);
-  const [validationErrors, setValidationErrors] = useState([]);
-  const [validationModal, setValidationModal] = useState(null);
 
   const loadedVessel = useMemo(() => {
     if (!editData.vesselName || !editData.arrivalDate) return null;
@@ -708,73 +706,6 @@ const ShipmentRow = ({
   };
 
   const handleSave = async () => {
-    const currentErrors = [];
-
-    // Stage 1: Planning
-    if (perms.planning === "write" && shipment.type !== "local") {
-        if (!editData.containerNumber) currentErrors.push("containerNumber");
-        if (!editData.containerSizeAndType) currentErrors.push("containerSizeAndType");
-    }
-
-    // Stage 2: Clearing
-    if (perms.clearing === "write" && shipment.type !== "local") {
-        if (!editData.numberOfPackages) currentErrors.push("numberOfPackages");
-        if (!editData.commodityDescription) currentErrors.push("commodityDescription");
-    }
-
-    // Stage 4: Transit
-    if (perms.transit === "write") {
-        if (editData.vehicleNumber || editData.vehicleType || editData.driverName || editData.driverPhone || editData.driverIdCardUrl || editData.actualPickupTime || editData.actualLiftingTime) {
-            if (!editData.vehicleNumber) currentErrors.push("vehicleNumber");
-            if (!editData.vehicleType) currentErrors.push("vehicleType");
-            if (!editData.driverName) currentErrors.push("driverName");
-            if (!editData.driverPhone) currentErrors.push("driverPhone");
-            if (!editData.driverIdCardUrl) currentErrors.push("driverIdCardUrl");
-            if (shipment.type === 'local' && !editData.actualLiftingTime) currentErrors.push("actualLiftingTime");
-            if (shipment.type !== 'local' && !editData.actualPickupTime) currentErrors.push("actualPickupTime");
-        }
-    }
-
-    // Stage 5: Unloading
-    if (perms.unloading === "write") {
-        if (editData.unloadingLocation || editData.unloadingPoint || editData.factoryGateInTime || editData.factoryGateOutTime || editData.unloadingDate || editData.receivingDocUrl) {
-             if (!editData.unloadingLocation && !editData.unloadingPoint) currentErrors.push("unloadingPoint");
-             if (!editData.factoryGateInTime) currentErrors.push("factoryGateInTime");
-             if (!editData.factoryGateOutTime) currentErrors.push("factoryGateOutTime");
-             if (!editData.unloadingDate) currentErrors.push("unloadingDate");
-             if (!editData.receivingDocUrl) currentErrors.push("receivingDocUrl");
-        }
-    }
-
-    // Stage 6: Return Load
-    if (perms.returnLoad === "write") {
-        if (editData.returnWarehouseDetails || editData.returnLoadMaterialDetails || editData.returnLoadQuantity) {
-             if (!editData.returnWarehouseDetails) currentErrors.push("returnWarehouseDetails");
-        }
-    }
-    if (isAssignedWarehouse || perms.returnLoad === "write" || profile?.role === "admin") {
-        if (editData.returnLoadReceivedStatus || editData.returnLoadDocument || editData.returnLoadReceivedDate) {
-             if (!editData.returnLoadReceivedStatus) currentErrors.push("returnLoadReceivedStatus");
-             if (!editData.returnLoadReceivedDate) currentErrors.push("returnLoadReceivedDate");
-             if (!editData.returnLoadDocument) currentErrors.push("returnLoadDocument");
-        }
-    }
-
-    // Stage 8: Completion
-    if (perms.completion === "write") {
-        if (editData.emptyContainerReturnTime || editData.emptyContainerEirUrl) {
-             if (!editData.emptyContainerReturnTime) currentErrors.push("emptyContainerReturnTime");
-             if (!editData.emptyContainerEirUrl) currentErrors.push("emptyContainerEirUrl");
-        }
-    }
-
-    if (currentErrors.length > 0) {
-        setValidationErrors(currentErrors);
-        setValidationModal("Please fill out all mandatory fields marked with red borders before saving.");
-        return;
-    }
-    setValidationErrors([]);
-
     // Auto-calculate the status based on data presence
     const isPlanningComplete = !!(editData.containerNumber && editData.containerSizeAndType);
     const isClearingComplete = !!(editData.grossWeight && editData.numberOfPackages && editData.commodityDescription);
@@ -998,7 +929,6 @@ const ShipmentRow = ({
 
   return (
     <div
-      data-invalid={validationErrors.join(" ")}
       className="shipment-row-container bg-white border-2 border-zinc-200 rounded-xl overflow-hidden shadow-[0_4px_0_rgb(228,228,231)] hover:-translate-y-1 hover:shadow-[0_6px_0_rgb(228,228,231)] transition-all mb-4"
     >
       <div className="p-3 border-b border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row md:justify-between items-start md:items-center gap-3">
@@ -2012,9 +1942,7 @@ const ShipmentRow = ({
                       value={editData.returnLoadReceivedDate || ""}
                       onChange={(e) => setEditData({ ...editData, returnLoadReceivedDate: e.target.value })}
                     />
-                    <div className={cn(
-                      validationErrors.includes("returnLoadDocument") && "border-2 border-red-500 rounded-lg"
-                    )}>
+                    <div className="border-0">
                       <FileUploader
                         label={editData.returnLoadDocumentName || "Attach Document * (Req. for Complete)"}
                         onUpload={(base64, name) => setEditData({ ...editData, returnLoadDocument: base64, returnLoadDocumentName: name })}
@@ -2804,24 +2732,6 @@ const ShipmentRow = ({
           </div>
         </div>
       </div>
-
-      {validationModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl flex flex-col gap-4 text-center">
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto text-red-600">
-              <AlertTriangle size={24} />
-            </div>
-            <h3 className="text-lg font-bold text-zinc-900">Mandatory Fields Missing</h3>
-            <p className="text-sm text-zinc-600">{validationModal}</p>
-            <button
-              onClick={() => setValidationModal(null)}
-              className="mt-2 w-full py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors"
-            >
-              Okay
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Container Selection Popup */}
       {showContainerPopup && loadedVessel && (
@@ -5068,16 +4978,6 @@ function ShipmentsView({
       const loadingPoint = newShipment.loadingPoint || '';
       const unloadingPoint = newShipment.unloadingPoint || '';
 
-      const errors = [];
-      if (!companyName) errors.push("companyName");
-      if (!loadingPoint) errors.push("loadingPoint");
-      if (!unloadingPoint) errors.push("unloadingPoint");
-
-      if (errors.length > 0) {
-        setNewShipmentErrors(errors);
-        setCreationModal("Please fill out all mandatory fields marked with red borders to create new shipments.");
-        return;
-      }
       setNewShipmentErrors([]);
 
       for (const item of selectedContainers) {
@@ -5143,16 +5043,6 @@ function ShipmentsView({
       const loadingPoint = newShipment.loadingPoint || '';
       const unloadingPoint = newShipment.unloadingPoint || '';
 
-      const errors = [];
-      if (!companyName) errors.push("companyName");
-      if (!loadingPoint) errors.push("loadingPoint");
-      if (!unloadingPoint) errors.push("unloadingPoint");
-
-      if (errors.length > 0) {
-        setNewShipmentErrors(errors);
-        setCreationModal("Please fill out all mandatory fields marked with red borders to create a local shipment.");
-        return;
-      }
       setNewShipmentErrors([]);
 
       const trackingId = `LOC-${Math.floor(Math.random() * 100000)}`;
