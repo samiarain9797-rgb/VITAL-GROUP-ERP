@@ -114,7 +114,11 @@ const InvoicesView = ({ profile }) => {
       setPaymentData({ amount: '', taxDeduction: '', detentionDeduction: '', fuelDeduction: '', otherDeduction: '', date: '', method: 'Bank Transfer', reference: '', ledger: '', document: null });
     } catch (error) {
       console.error("Error recording payment:", error);
-      alert("Failed to record payment.");
+      if (error?.code === 'storage/retry-limit-exceeded' || error?.code === 'storage/unauthorized') {
+        alert("Firebase Storage Error: Please configure CORS and Storage Rules. See the main file uploader prompt for exact CLI instructions.");
+      } else {
+        alert("Failed to record payment.");
+      }
     } finally {
       setIsUploading(false);
     }

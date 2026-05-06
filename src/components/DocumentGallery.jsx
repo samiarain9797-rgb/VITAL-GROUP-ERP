@@ -117,7 +117,11 @@ export default function DocumentGallery({ shipments, profile }) {
       setIsAddModalOpen(false);
     } catch (error) {
       console.error("Error uploading document:", error);
-      alert("Failed to upload document. Please ensure Storage is set up.");
+      if (error?.code === 'storage/retry-limit-exceeded' || error?.code === 'storage/unauthorized') {
+        alert("Firebase Storage Error: Please configure CORS and Storage Rules. Try uploading via a main shipment file uploader component to see exact CLI troubleshooting instructions.");
+      } else {
+        alert("Failed to upload document. Please ensure Storage is set up.");
+      }
     } finally {
       setIsUploading(false);
     }

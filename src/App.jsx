@@ -4913,13 +4913,15 @@ const FileUploader = ({
       {modalState.isOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl animate-in fade-in zoom-in-95">
-            <h3 className="text-lg font-bold text-zinc-900 mb-2">{modalState.isStorageError ? 'Storage Setup Required' : 'Notice'}</h3>
+            <h3 className="text-lg font-bold text-zinc-900 mb-2">{modalState.isStorageError ? 'Storage Setup / CORS Required' : 'Notice'}</h3>
             <div className="text-zinc-600 text-sm mb-6">
               {modalState.message}
               {modalState.isStorageError && (
-                <div className="mt-4 bg-orange-50 text-orange-800 p-3 rounded border border-orange-200">
-                  <p className="font-bold mb-1 border-b border-orange-200 pb-1">Please enable Storage:</p>
-                  <ol className="list-decimal pl-4 space-y-1 mt-2 text-xs">
+                <div className="mt-4 bg-orange-50 text-orange-800 p-3 rounded border border-orange-200 h-64 overflow-y-auto">
+                  <p className="font-bold mb-1 border-b border-orange-200 pb-1">Troubleshooting Firebase Storage:</p>
+                  
+                  <p className="font-bold text-xs mt-2">1. Ensure Storage is Enabled & Rules are Published</p>
+                  <ol className="list-decimal pl-4 space-y-1 mt-1 text-xs">
                     <li>Go to console.firebase.google.com</li>
                     <li>Click <strong>Storage</strong> → <strong>Get Started</strong></li>
                     <li>Once enabled, go to the <strong>Rules</strong> tab</li>
@@ -4934,6 +4936,18 @@ service firebase.storage {
     }
   }
 }`}
+                  </pre>
+
+                  <p className="font-bold text-xs mt-4">2. Enable CORS (Cross-Origin Resource Sharing)</p>
+                  <p className="text-xs mt-1">If rules are correct but you still get <b>Max retry time exceeded</b>, your custom domain requires CORS configuration.</p>
+                  <ol className="list-decimal pl-4 space-y-1 mt-1 text-xs">
+                    <li>Go to console.cloud.google.com</li>
+                    <li>Select your Firebase project</li>
+                    <li>Open <strong>Cloud Shell</strong> (terminal icon top right)</li>
+                    <li>Copy and run this exact command:</li>
+                  </ol>
+                  <pre className="bg-white p-2 mt-2 rounded border border-orange-100 text-[10px] sm:text-[11px] overflow-x-auto whitespace-pre-wrap select-all">
+{`echo '[{"origin": ["*"],"responseHeader": ["Content-Type"],"method": ["GET", "HEAD", "PUT", "POST", "DELETE"],"maxAgeSeconds": 3600}]' > cors.json; gsutil cors set cors.json gs://\$(gcloud config get-value project).firebasestorage.app`}
                   </pre>
                 </div>
               )}
