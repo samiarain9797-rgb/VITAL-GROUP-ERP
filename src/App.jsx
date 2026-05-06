@@ -6075,7 +6075,7 @@ const ReportsView = ({ shipments, profile, companiesData, setActiveTab }) => {
         ntn: "1234567-8",
         contactNumber: "+1 234 567 8900",
         email: "contact@vitallogistics.com",
-        logoUrl: "https://placehold.co/150x50/png?text=LOGO",
+        logoUrl: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTgwIiBoZWlnaHQ9IjYwIiB2aWV3Qm94PSIwIDAgMTgwIDYwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iNjAiIGZpbGw9IiNmZmZmZmYiLz48cmVjdCB4PSIxMCIgeT0iMTQiIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgcng9IjgiIGZpbGw9IiNlYTU4MGMiLz48cGF0aCBkPSJNMjEgMjRMMjYgMzZMMzEgMjQiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHRleHQgeD0iNTIiIHk9IjM2IiBmaWxsPSIjMThmMTMiIGZvbnQtZmFtaWx5PSJzZXJpZiwgVGltZXMiIGZvbnQtc2l6ZT0iMjIiIGZvbnQtd2VpZ2h0PSI5MDAiIGZvbnQtc3R5bGU9Iml0YWxpYyIgbGV0dGVyLXNwYWNpbmc9Ii0xIj5WaXRhbCBHcm91cDwvdGV4dD48L3N2Zz4=",
       };
     }
 
@@ -8850,11 +8850,12 @@ function MainApp() {
         <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-8 lg:p-24 bg-white">
           <div className="w-full max-w-md">
             <div className="flex items-center gap-3 mb-12">
-              <div className="w-12 h-12 bg-orange-600 rounded-xl flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-orange-500/20">
-                V
-              </div>
-              <span className="font-bold text-zinc-900 tracking-tighter text-3xl">
-                VITAL ERP
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0 drop-shadow-md">
+                <rect width="48" height="48" rx="12" fill="#ea580c"/>
+                <path d="M16 15L24 33L32 15" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="font-extrabold text-zinc-900 tracking-tight text-3xl font-serif italic">
+                Vital Group ERP
               </span>
             </div>
             
@@ -8986,12 +8987,13 @@ function MainApp() {
         )}
       >
         <div className="p-6 flex items-center gap-3 border-b border-zinc-100">
-          <div className="w-8 h-8 bg-orange-600 rounded flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-orange-600/20">
-            V
-          </div>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0 drop-shadow-sm">
+            <rect width="32" height="32" rx="8" fill="#ea580c"/>
+            <path d="M11 10L16 22L21 10" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
           {isSidebarOpen && (
-            <span className="font-bold text-zinc-900 tracking-tighter text-lg">
-              VITAL GROUP
+            <span className="font-extrabold text-zinc-900 tracking-tight text-xl font-serif italic">
+              Vital Group
             </span>
           )}
         </div>
