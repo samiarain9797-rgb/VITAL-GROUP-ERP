@@ -201,56 +201,67 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 );
 
 -- Enable Realtime for these tables
-alter publication supabase_realtime add table public.shipments;
-alter publication supabase_realtime add table public.invoices;
-alter publication supabase_realtime add table public.documents;
-alter publication supabase_realtime add table public.users;
-alter publication supabase_realtime add table public.vessels;
-alter publication supabase_realtime add table public.fleet_vehicles;
-alter publication supabase_realtime add table public.companies;
-alter publication supabase_realtime add table public.complaints;
-alter publication supabase_realtime add table public.fuel_prices;
-alter publication supabase_realtime add table public.transporter_rates;
-alter publication supabase_realtime add table public.chats;
-alter publication supabase_realtime add table public.messages;
-alter publication supabase_realtime add table public.notifications;
+-- Run these individually if they are not already in the publication:
+-- alter publication supabase_realtime add table public.shipments;
+-- alter publication supabase_realtime add table public.invoices;
+-- alter publication supabase_realtime add table public.documents;
+-- alter publication supabase_realtime add table public.users;
+-- alter publication supabase_realtime add table public.vessels;
+-- alter publication supabase_realtime add table public.fleet_vehicles;
+-- alter publication supabase_realtime add table public.companies;
+-- alter publication supabase_realtime add table public.complaints;
+-- alter publication supabase_realtime add table public.fuel_prices;
+-- alter publication supabase_realtime add table public.transporter_rates;
+-- alter publication supabase_realtime add table public.chats;
+-- alter publication supabase_realtime add table public.messages;
+-- alter publication supabase_realtime add table public.notifications;
 
 -- RLS (Row Level Security) - Basic open rules (you can tighten these later)
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+-- Note: If policies already exist, running these again will cause errors. You can drop them or skip them.
+-- ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for users" ON public.users FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.shipments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for shipments" ON public.shipments FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.shipments ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for shipments" ON public.shipments FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.vessels ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for vessels" ON public.vessels FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.vessels ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for vessels" ON public.vessels FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.fleet_vehicles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for fleet_vehicles" ON public.fleet_vehicles FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.fleet_vehicles ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for fleet_vehicles" ON public.fleet_vehicles FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for invoices" ON public.invoices FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for invoices" ON public.invoices FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for documents" ON public.documents FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for documents" ON public.documents FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for companies" ON public.companies FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for companies" ON public.companies FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.complaints ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for complaints" ON public.complaints FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.complaints ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for complaints" ON public.complaints FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.fuel_prices ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for fuel_prices" ON public.fuel_prices FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.fuel_prices ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for fuel_prices" ON public.fuel_prices FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.transporter_rates ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for transporter_rates" ON public.transporter_rates FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.transporter_rates ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for transporter_rates" ON public.transporter_rates FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for chats" ON public.chats FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for chats" ON public.chats FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for messages" ON public.messages FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for messages" ON public.messages FOR ALL USING (true) WITH CHECK (true);
 
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
+-- ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Enable all for notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
+
+-- Supabase Storage bucket
+INSERT INTO storage.buckets (id, name, public) VALUES ('uploads', 'uploads', true) ON CONFLICT (id) DO NOTHING;
+
+-- Policies for storage
+CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING (bucket_id = 'uploads');
+CREATE POLICY "Upload Access" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'uploads');
+CREATE POLICY "Update Access" ON storage.objects FOR UPDATE USING (bucket_id = 'uploads');
+CREATE POLICY "Delete Access" ON storage.objects FOR DELETE USING (bucket_id = 'uploads');

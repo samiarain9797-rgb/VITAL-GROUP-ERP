@@ -71,14 +71,13 @@ import {
   Cell,
 } from "recharts";
 
-// Firebase Imports
-import { db, storage } from "./firebase";
 import { supabase } from "./supabase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { initializeApp, deleteApp, getApp, getApps } from "firebase/app";
-// @ts-ignore
-import firebaseConfig from "../firebase-applet-config.json";
 import {
+  db,
+  storage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
   collection,
   onSnapshot,
   query,
@@ -323,107 +322,115 @@ const AuthProvider = ({ children }) => {
         return;
       }
 
-      const su = session?.user;
-      let u = null;
-      if (su) {
-        u = {
-          ...su,
-          uid: su.id,
-          displayName: su.user_metadata?.full_name || su.email?.split("@")[0],
-          photoURL: su.user_metadata?.avatar_url || "",
-          providerData: [{ providerId: su.app_metadata.provider === 'google' ? 'google.com' : 'password' }]
-        };
-      }
+      try {
+        const su = session?.user;
+        let u = null;
+        if (su) {
+          u = {
+            ...su,
+            uid: su.id,
+            displayName: su.user_metadata?.full_name || su.email?.split("@")[0],
+            photoURL: su.user_metadata?.avatar_url || "",
+            providerData: [{ providerId: su.app_metadata.provider === 'google' ? 'google.com' : 'password' }]
+          };
+        }
 
-      if (u) {
-        const userRef = doc(db, "users", u.uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          setProfile(userSnap.data());
-        } else {
-          // Check if admin pre-registered this email
-          let isPreRegistered = false;
-          let oldDummyUid = null;
-          let existingData = {};
+        if (u) {
+          const userRef = doc(db, "users", u.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            setProfile(userSnap.data());
+          } else {
+            // ... check for pre-registered email ...
+            let isPreRegistered = false;
+            let oldDummyUid = null;
+            let existingData = {};
 
-          if (u.providerData.some((p) => p.providerId === "google.com") || u.email === "samiarain9797@gmail.com") {
-            const usersRef = collection(db, "users");
-            const q = query(usersRef, where("email", "==", u.email));
-            const querySnapshot = await getDocs(q);
+            if (u.providerData.some((p) => p.providerId === "google.com") || u.email === "samiarain9797@gmail.com") {
+              const usersRef = collection(db, "users");
+              const q = query(usersRef, where("email", "==", u.email));
+              const querySnapshot = await getDocs(q);
 
-            if (!querySnapshot.empty) {
-              const docSnap = querySnapshot.docs[0];
-              existingData = docSnap.data();
-              oldDummyUid = docSnap.id;
-              isPreRegistered = true;
-            } else if (u.email === "samiarain9797@gmail.com") {
-              // Always let the main admin sign in
-              isPreRegistered = true;
-            }
-          }
-
-          if (isPreRegistered) {
-            const newProfile = {
-              uid: u.uid,
-              email: u.email || "",
-              displayName: existingData.displayName || u.displayName || u.email?.split("@")[0] || "",
-              photoURL: u.photoURL || "",
-              role: existingData.role || (u.email === "samiarain9797@gmail.com" ? "admin" : "transporter"),
-              warehouseLocation: existingData.warehouseLocation || null,
-              assignedLocation: existingData.assignedLocation || null,
-              createdAt: existingData.createdAt || Timestamp.now(),
-            };
-
-            await setDoc(userRef, newProfile);
-
-            // Delete the dummy document if it existed
-            if (oldDummyUid && oldDummyUid !== u.uid) {
-              await deleteDoc(doc(db, "users", oldDummyUid));
-
-              // If they were a transporter, update their transporterId in companies collection
-              if (newProfile.role === "transporter") {
-                const companiesRef = collection(db, "companies");
-                const cQuery = query(companiesRef, where("transporterId", "==", oldDummyUid));
-                const cDocs = await getDocs(cQuery);
-                for (const cDoc of cDocs.docs) {
-                  await updateDoc(doc(db, "companies", cDoc.id), {
-                    transporterId: u.uid
-                  });
-                }
+              if (!querySnapshot.empty) {
+                const docSnap = querySnapshot.docs[0];
+                existingData = docSnap.data();
+                oldDummyUid = docSnap.id;
+                isPreRegistered = true;
+              } else if (u.email === "samiarain9797@gmail.com") {
+                // Always let the main admin sign in
+                isPreRegistered = true;
               }
             }
 
-            // Fallback: If it's a new transporter but no dummy ID (e.g. initial admin), create the company
-            if (newProfile.role === "transporter" && !oldDummyUid) {
-              await addDoc(collection(db, "companies"), {
-                name: newProfile.displayName,
-                email: newProfile.email,
-                address: "",
-                ntn: "",
-                contactNumber: "",
-                logoUrl: newProfile.photoURL || "",
-                type: "transporter",
-                transporterId: u.uid,
-                createdAt: Timestamp.now(),
-                updatedAt: Timestamp.now(),
-              });
-            }
+            if (isPreRegistered) {
+              const newProfile = {
+                uid: u.uid,
+                email: u.email || "",
+                displayName: existingData.displayName || u.displayName || u.email?.split("@")[0] || "",
+                photoURL: u.photoURL || "",
+                role: existingData.role || (u.email === "samiarain9797@gmail.com" ? "admin" : "transporter"),
+                warehouseLocation: existingData.warehouseLocation || null,
+                assignedLocation: existingData.assignedLocation || null,
+                createdAt: existingData.createdAt || Timestamp.now(),
+              };
 
-            setProfile(newProfile);
-          } else {
-            await supabase.auth.signOut();
-            window.dispatchEvent(new CustomEvent("loginErrorEvent", { detail: "You are not registered. Please contact an administrator." }));
-            setProfile(null);
-            setUser(null);
-            setLoading(false);
-            return;
+              await setDoc(userRef, newProfile);
+
+              // Delete dummy doc
+              if (oldDummyUid && oldDummyUid !== u.uid) {
+                await deleteDoc(doc(db, "users", oldDummyUid));
+                if (newProfile.role === "transporter") {
+                  const companiesRef = collection(db, "companies");
+                  const cQuery = query(companiesRef, where("transporterId", "==", oldDummyUid));
+                  const cDocs = await getDocs(cQuery);
+                  for (const cDoc of cDocs.docs) {
+                    await updateDoc(doc(db, "companies", cDoc.id), { transporterId: u.uid });
+                  }
+                }
+              }
+
+              if (newProfile.role === "transporter" && !oldDummyUid) {
+                await addDoc(collection(db, "companies"), {
+                  name: newProfile.displayName,
+                  email: newProfile.email,
+                  address: "",
+                  ntn: "",
+                  contactNumber: "",
+                  logoUrl: newProfile.photoURL || "",
+                  type: "transporter",
+                  transporterId: u.uid,
+                  createdAt: Timestamp.now(),
+                  updatedAt: Timestamp.now(),
+                });
+              }
+
+              setProfile(newProfile);
+            } else {
+              await supabase.auth.signOut();
+              window.dispatchEvent(new CustomEvent("loginErrorEvent", { detail: "You are not registered. Please contact an administrator." }));
+              setProfile(null);
+              setUser(null);
+              setLoading(false);
+              return;
+            }
           }
+        } else {
+          setProfile(null);
         }
-      } else {
+        setUser(u);
+      } catch (error) {
+        console.error("Error in onAuthStateChange:", error);
+        
+        if (error.code === '42P01') {
+           alert(`Database Tables Missing: Please open the 'supabase_schema.sql' file, copy its contents, and run it in your Supabase project's SQL Editor to create the necessary tables.`);
+        }
+
         setProfile(null);
+        setUser(null);
+        await supabase.auth.signOut().catch(() => {});
+      } finally {
+        setLoading(false);
       }
-      setUser(u);
-      setLoading(false);
     });
     return () => {
       subscription.unsubscribe();
@@ -4829,8 +4836,8 @@ const AudioRecorder = ({ onRecordingComplete }) => {
           onRecordingComplete(downloadURL);
         } catch (error) {
           console.error("Audio upload failed:", error);
-          if (error?.code === 'storage/retry-limit-exceeded' || error?.code === 'storage/unauthorized') {
-            alert("Storage Access Denied: \n\nPlease enable Firebase Storage in your Firebase Console and set the Rules to allow read/write access.");
+          if (error.message && error.message.includes('bucket not found')) {
+            alert("Storage Access Denied: \n\nPlease create a storage bucket named 'uploads' in your Supabase Console, and make it public.");
           } else {
             alert("Failed to upload audio message. " + (error?.message || ""));
           }
@@ -4946,36 +4953,28 @@ const FileUploader = ({
               {modalState.message}
               {modalState.isStorageError && (
                 <div className="mt-4 bg-orange-50 text-orange-800 p-3 rounded border border-orange-200 h-64 overflow-y-auto">
-                  <p className="font-bold mb-1 border-b border-orange-200 pb-1">Troubleshooting Firebase Storage:</p>
+                  <p className="font-bold mb-1 border-b border-orange-200 pb-1">Troubleshooting Supabase Storage:</p>
                   
-                  <p className="font-bold text-xs mt-2">1. Ensure Storage is Enabled & Rules are Published</p>
+                  <p className="font-bold text-xs mt-2">1. Create 'uploads' Bucket</p>
                   <ol className="list-decimal pl-4 space-y-1 mt-1 text-xs">
-                    <li>Go to console.firebase.google.com</li>
-                    <li>Click <strong>Storage</strong> → <strong>Get Started</strong></li>
-                    <li>Once enabled, go to the <strong>Rules</strong> tab</li>
-                    <li>Paste the following and Publish:</li>
+                    <li>Go to your Supabase project dashboard</li>
+                    <li>Click <strong>Storage</strong> in the left sidebar</li>
+                    <li>Click <strong>New Bucket</strong></li>
+                    <li>Name it exactly <strong>uploads</strong></li>
+                    <li>Make sure it is set to <strong>Public</strong></li>
                   </ol>
-                  <pre className="bg-white p-2 mt-2 rounded border border-orange-100 text-[10px] sm:text-[11px] overflow-x-auto whitespace-pre-wrap">
-{`rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if request.auth != null;
-    }
-  }
-}`}
-                  </pre>
 
-                  <p className="font-bold text-xs mt-4">2. Enable CORS (Cross-Origin Resource Sharing)</p>
-                  <p className="text-xs mt-1">If rules are correct but you still get <b>Max retry time exceeded</b>, your custom domain requires CORS configuration.</p>
+                  <p className="font-bold text-xs mt-4">2. Add Storage Policies</p>
+                  <p className="text-xs mt-1">If the bucket exists but you get permission errors, you need to allow uploads in the SQL Editor.</p>
                   <ol className="list-decimal pl-4 space-y-1 mt-1 text-xs">
-                    <li>Go to console.cloud.google.com</li>
-                    <li>Select your Firebase project</li>
-                    <li>Open <strong>Cloud Shell</strong> (terminal icon top right)</li>
-                    <li>Copy and run this exact command:</li>
+                    <li>Go to the <strong>SQL Editor</strong> in Supabase</li>
+                    <li>Run the policies from the provided <code>supabase_schema.sql</code> file, or run:</li>
                   </ol>
                   <pre className="bg-white p-2 mt-2 rounded border border-orange-100 text-[10px] sm:text-[11px] overflow-x-auto whitespace-pre-wrap select-all">
-{`echo '[{"origin": ["*"],"responseHeader": ["Content-Type"],"method": ["GET", "HEAD", "PUT", "POST", "DELETE"],"maxAgeSeconds": 3600}]' > cors.json; gsutil cors set cors.json gs://\$(gcloud config get-value project).firebasestorage.app`}
+{`CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING (bucket_id = 'uploads');
+CREATE POLICY "Upload Access" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'uploads');
+CREATE POLICY "Update Access" ON storage.objects FOR UPDATE USING (bucket_id = 'uploads');
+CREATE POLICY "Delete Access" ON storage.objects FOR DELETE USING (bucket_id = 'uploads');`}
                   </pre>
                 </div>
               )}

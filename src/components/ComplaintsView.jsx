@@ -11,8 +11,8 @@ import {
   X, 
   Send 
 } from 'lucide-react';
-import { doc, setDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { doc, setDoc, updateDoc, serverTimestamp, Timestamp } from "../supabase-firestore-shim";
+import { db } from "../supabase-firestore-shim";
 import { cn } from '../lib/utils';
 
 const CATEGORIES = [

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Settings, Plus, Save, Trash2, Crosshair, HelpCircle, Activity } from 'lucide-react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { doc, getDoc, setDoc } from "../supabase-firestore-shim";
+import { db } from "../supabase-firestore-shim";
 
 const TrackerIntegrationsView = () => {
   const [integrations, setIntegrations] = useState([]);

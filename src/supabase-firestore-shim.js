@@ -2,20 +2,61 @@ import { supabase } from './supabase';
 
 // A lightweight shim to map Firestore operations to Supabase
 
+export const db = {};
+export const storage = {};
+
+export function ref(storageMock, path) {
+  return { path };
+}
+
+export async function uploadBytes(storageRef, blobOrFile) {
+  const { path } = storageRef;
+  const { data, error } = await supabase.storage.from('uploads').upload(path, blobOrFile, {
+    upsert: true
+  });
+  if (error) {
+    if (error.message.includes('bucket not found')) {
+      // Ignore or log? If bucket doesn't exist, this fails. 
+      console.warn("Storage bucket 'uploads' not found or other storage error:", error);
+    }
+    throw error;
+  }
+  return { metadata: { fullPath: path } };
+}
+
+export async function getDownloadURL(storageRef) {
+  const { path } = storageRef;
+  const { data, error } = await supabase.storage.from('uploads').createSignedUrl(path, 60 * 60 * 24 * 365); // 1 year
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+export async function deleteObject(storageRef) {
+  const { path } = storageRef;
+  const { error } = await supabase.storage.from('uploads').remove([path]);
+  if (error) throw error;
+}
+
 export function collection(db, ...paths) {
   return { type: 'collection', path: paths.join('/') };
 }
 
 export function doc(db, path, ...rest) {
   if (rest.length === 0) {
-    if (path.includes('/')) {
+    if (typeof path === 'string' && path.includes('/')) {
       const parts = path.split('/');
-      return { type: 'doc', table: parts[0], id: parts[1] };
+      if (parts.length === 2) {
+        return { type: 'doc', table: parts[0], id: parts[1] };
+      }
+      if (parts.length === 4) {
+        return { type: 'doc', table: parts[2], id: parts[3] };
+      }
     }
   }
   // collection, id
   if (typeof path === 'object' && path.type === 'collection') {
-    return { type: 'doc', table: path.path, id: rest[0] || crypto.randomUUID() };
+    const { table } = prepareTableAndParent(path.path);
+    return { type: 'doc', table: table, id: rest[0] || crypto.randomUUID() };
   }
   // string, string
   return { type: 'doc', table: path, id: rest[0] || crypto.randomUUID() };
@@ -180,17 +221,17 @@ export function onSnapshot(ref, callback) {
   const { table, parentCond } = prepareTableAndParent(ref.path || ref.table);
   
   if (ref.type === 'doc') {
-    getDoc(ref).then(snap => callback(snap));
+    getDoc(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDoc error:", err));
   } else {
-    getDocs(ref).then(snap => callback(snap));
+    getDocs(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDocs error:", err));
   }
 
   const channel = supabase.channel(`public:${table}`)
     .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
       if (ref.type === 'doc') {
-        getDoc(ref).then(snap => callback(snap));
+        getDoc(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDoc error (update):", err));
       } else {
-        getDocs(ref).then(snap => callback(snap));
+        getDocs(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDocs error (update):", err));
       }
     })
     .subscribe();

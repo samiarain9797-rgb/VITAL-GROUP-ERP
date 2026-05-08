@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calculator, DollarSign, TrendingUp, TrendingDown, Save, MapPin, Truck } from 'lucide-react';
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { collection, addDoc, doc, updateDoc, serverTimestamp } from "../supabase-firestore-shim";
+import { db } from "../supabase-firestore-shim";
 import { cn } from '../lib/utils';
 
 const RouteCostingModal = ({ costingToEdit, onClose, profile }) => {

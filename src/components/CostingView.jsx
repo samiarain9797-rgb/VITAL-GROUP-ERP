@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, DollarSign, TrendingUp, TrendingDown, Calculator, Plus, Trash2, Edit2 } from 'lucide-react';
-import { collection, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { collection, onSnapshot, deleteDoc, doc } from "../supabase-firestore-shim";
+import { db } from "../supabase-firestore-shim";
 import RouteCostingModal from './RouteCostingModal';
 import { cn } from '../lib/utils';
 

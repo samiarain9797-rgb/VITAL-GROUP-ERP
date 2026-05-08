@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { doc, getDoc, updateDoc, db } from '../supabase-firestore-shim';
 
 export function useTrackerSync(shipments, profile) {
   const syncIntervalRef = useRef(null);

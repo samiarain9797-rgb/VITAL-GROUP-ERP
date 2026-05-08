@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "../supabase-firestore-shim";
+import { db } from "../supabase-firestore-shim";
 import { Plus, Edit2, Trash2, X, Save } from "lucide-react";
 
 export default function CompaniesView({ companies, profile }) {

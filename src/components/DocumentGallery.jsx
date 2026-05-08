@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Search, FileText, Image as ImageIcon, Download, ExternalLink, Plus, Trash2, Upload } from 'lucide-react';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
-import { db, storage } from '../firebase';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, query, orderBy } from "../supabase-firestore-shim";
+import { db, storage } from "../supabase-firestore-shim";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "../supabase-firestore-shim";
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function DocumentGallery({ shipments, profile }) {
@@ -118,7 +118,7 @@ export default function DocumentGallery({ shipments, profile }) {
     } catch (error) {
       console.error("Error uploading document:", error);
       if (error?.code === 'storage/retry-limit-exceeded' || error?.code === 'storage/unauthorized') {
-        alert("Firebase Storage Error: Please configure CORS and Storage Rules. Try uploading via a main shipment file uploader component to see exact CLI troubleshooting instructions.");
+        alert("Supabase Storage Error: Please create the uploads bucket and set policies in SQL Editor. Try uploading via a main shipment file uploader component to see exact CLI troubleshooting instructions.");
       } else {
         alert("Failed to upload document. Please ensure Storage is set up.");
       }
