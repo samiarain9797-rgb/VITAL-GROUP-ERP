@@ -72,17 +72,9 @@ import {
 } from "recharts";
 
 // Firebase Imports
-import { auth, db, storage } from "./firebase";
+import { db, storage } from "./firebase";
+import { supabase } from "./supabase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import {
-  onAuthStateChanged,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  getAuth,
-} from "firebase/auth";
 import { initializeApp, deleteApp, getApp, getApps } from "firebase/app";
 // @ts-ignore
 import firebaseConfig from "../firebase-applet-config.json";
@@ -105,7 +97,7 @@ import {
   getDocFromServer,
   arrayUnion,
   deleteField,
-} from "firebase/firestore";
+} from "./supabase-firestore-shim";
 import AIAssistant from './components/AIAssistant';
 import ComplaintsView from './components/ComplaintsView';
 import TrackerIntegrationsView from './components/TrackerIntegrationsView';
@@ -310,7 +302,39 @@ const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
+    const handleMessage = async (event) => {
+      if (event.data?.type === 'SUPABASE_AUTH_SUCCESS' && event.data?.session) {
+        await supabase.auth.setSession(event.data.session);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // If we're inside a popup window, pass the session to the parent and close
+      if (session && window.opener) {
+        window.opener.postMessage({ 
+          type: 'SUPABASE_AUTH_SUCCESS', 
+          session: { 
+            access_token: session.access_token, 
+            refresh_token: session.refresh_token 
+          } 
+        }, '*');
+        window.close();
+        return;
+      }
+
+      const su = session?.user;
+      let u = null;
+      if (su) {
+        u = {
+          ...su,
+          uid: su.id,
+          displayName: su.user_metadata?.full_name || su.email?.split("@")[0],
+          photoURL: su.user_metadata?.avatar_url || "",
+          providerData: [{ providerId: su.app_metadata.provider === 'google' ? 'google.com' : 'password' }]
+        };
+      }
+
       if (u) {
         const userRef = doc(db, "users", u.uid);
         const userSnap = await getDoc(userRef);
@@ -387,7 +411,7 @@ const AuthProvider = ({ children }) => {
 
             setProfile(newProfile);
           } else {
-            await signOut(auth);
+            await supabase.auth.signOut();
             window.dispatchEvent(new CustomEvent("loginErrorEvent", { detail: "You are not registered. Please contact an administrator." }));
             setProfile(null);
             setUser(null);
@@ -401,6 +425,10 @@ const AuthProvider = ({ children }) => {
       setUser(u);
       setLoading(false);
     });
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('message', handleMessage);
+    };
   }, []);
 
   return (
@@ -8044,18 +8072,20 @@ const UsersView = ({ users, profile, shipments = [] }) => {
     }
 
     setError("");
-    let secondaryApp;
     try {
-      // Use a secondary app instance to create the user without signing out the admin
-      secondaryApp = getApps().find(app => app.name === "SecondaryApp") || initializeApp(firebaseConfig, "SecondaryApp");
-      const secondaryAuth = getAuth(secondaryApp);
       const email = `${newTempData.username}@temp.app`;
-      const userCredential = await createUserWithEmailAndPassword(
-        secondaryAuth,
+      const { createClient } = await import('@supabase/supabase-js');
+      const tempSupabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      
+      const { data, error } = await tempSupabase.auth.signUp({
         email,
-        newTempData.password,
-      );
-      const uid = userCredential.user.uid;
+        password: newTempData.password,
+      });
+      
+      if (error) throw error;
+      if (!data.user) throw new Error("Could not create user");
+      
+      const uid = data.user.id;
 
       await setDoc(doc(db, "users", uid), {
         uid,
@@ -8091,8 +8121,6 @@ const UsersView = ({ users, profile, shipments = [] }) => {
           updatedAt: Timestamp.now(),
         });
       }
-
-      await signOut(secondaryAuth);
 
       setIsAddingTemp(false);
       setNewTempData({
@@ -8786,22 +8814,21 @@ function MainApp() {
 
   const handleLogin = async () => {
     setLoginError("");
-    const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      const { data, error } = await supabase.auth.signInWithOAuth({ 
+        provider: 'google',
+        options: {
+          skipBrowserRedirect: true,
+          redirectTo: `${window.location.origin}/`
+        }
+      });
+      if (error) throw error;
+      if (data?.url) {
+        window.open(data.url, 'oauth_popup', 'width=600,height=700');
+      }
     } catch (error) {
       console.error("Login failed:", error);
-      if (error.code === "auth/operation-not-allowed") {
-        setLoginError(
-          "Google Login is not enabled in your Firebase Console. Please enable it in Authentication > Sign-in method.",
-        );
-      } else if (error.code === "auth/unauthorized-domain") {
-        setLoginError(
-          "This domain is not authorized for OAuth operations for your Firebase project. Edit the list of authorized domains from the Firebase console.",
-        );
-      } else {
-        setLoginError("Google login failed. Please try again. (" + error.message + ")");
-      }
+      setLoginError("Google login failed. Please try again. (" + error.message + ")");
     }
   };
 
@@ -8811,14 +8838,14 @@ function MainApp() {
     if (!tempId || !tempPassword) return;
     try {
       const email = `${tempId}@temp.app`;
-      await signInWithEmailAndPassword(auth, email, tempPassword);
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: tempPassword,
+      });
+      if (error) throw error;
     } catch (err) {
       console.error(err);
-      if (err.code === "auth/operation-not-allowed") {
-        setLoginError(
-          "Email/Password Login is not enabled in your Firebase Console. Please enable it in Authentication > Sign-in method.",
-        );
-      } else if (err.code === "auth/invalid-credential") {
+      if (err.message?.includes("Invalid login")) {
         setLoginError("Invalid ID or Password. Please check your credentials.");
       } else {
         setLoginError("Login failed. Please try again.");
@@ -9195,7 +9222,7 @@ function MainApp() {
             {isSidebarOpen && <span>Download App</span>}
           </button>
           <button
-            onClick={() => signOut(auth)}
+            onClick={() => supabase.auth.signOut()}
             className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition-all rounded-xl hover:-translate-y-1 hover:shadow-sm"
           >
             <LogOut size={18} />
