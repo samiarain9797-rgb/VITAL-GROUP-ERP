@@ -8828,36 +8828,40 @@ function MainApp() {
     }
   };
 
+  const handleResetPassword = async () => {
+    setLoginError("");
+    if (!adminEmail) {
+      setLoginError("Please enter your email to reset your password.");
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(adminEmail, {
+        redirectTo: window.location.origin + '/',
+      });
+      if (error) throw error;
+      alert("Password reset instructions have been sent to your email.");
+    } catch (error) {
+      console.error("Reset password failed:", error);
+      setLoginError("Reset password failed: " + error.message);
+    }
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
     if (!adminEmail || !adminPassword) return;
     try {
-      if (loginMode === 'admin-signup') {
-        const { data, error } = await supabase.auth.signUp({ 
-          email: adminEmail,
-          password: adminPassword,
-        });
-        if (error) throw error;
-        if (data?.user?.identities?.length === 0) {
-          throw new Error("This email is already registered.");
-        }
-        // Success message or handle auto-login
-        alert("Account created successfully! You can now log in.");
-        setLoginMode('admin');
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ 
-          email: adminEmail,
-          password: adminPassword,
-        });
-        if (error) throw error;
-      }
+      const { data, error } = await supabase.auth.signInWithPassword({ 
+        email: adminEmail,
+        password: adminPassword,
+      });
+      if (error) throw error;
     } catch (error) {
       console.error("Login failed:", error);
       if (error.message && error.message.includes("Failed to fetch")) {
         setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
       } else {
-        setLoginError((loginMode === 'admin-signup' ? "Sign up failed: " : "Login failed: ") + error.message);
+        setLoginError("Login failed. " + error.message);
       }
     }
   };
@@ -8973,7 +8977,7 @@ function MainApp() {
               </div>
             )}
 
-            {loginMode === "admin" || loginMode === "admin-signup" ? (
+            {loginMode === "admin" ? (
               <form onSubmit={handleLogin} className="space-y-5">
                 <div className="space-y-1.5">
                   <label className="text-xs uppercase tracking-widest text-zinc-500 font-mono ml-1 font-semibold">
@@ -8989,9 +8993,18 @@ function MainApp() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs uppercase tracking-widest text-zinc-500 font-mono ml-1 font-semibold">
-                    Password
-                  </label>
+                  <div className="flex items-center justify-between ml-1">
+                    <label className="text-xs uppercase tracking-widest text-zinc-500 font-mono font-semibold">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleResetPassword}
+                      className="text-xs text-zinc-500 hover:text-zinc-800"
+                    >
+                      Forgot Password?
+                    </button>
+                  </div>
                   <input
                     type="password"
                     placeholder="••••••••"
@@ -9006,17 +9019,8 @@ function MainApp() {
                   className="w-full flex items-center justify-center gap-3 bg-zinc-900 text-white py-3.5 rounded-xl font-medium hover:bg-zinc-800 transition-all active:scale-[0.98] shadow-lg shadow-zinc-900/10 mt-2"
                 >
                   <LogIn size={20} />
-                  {loginMode === 'admin-signup' ? 'Create Admin Account' : 'Sign in securely'}
+                  Sign in securely
                 </button>
-                <div className="text-center mt-4">
-                  <button 
-                    type="button" 
-                    className="text-xs text-zinc-500 hover:text-zinc-800"
-                    onClick={() => setLoginMode(loginMode === 'admin' ? 'admin-signup' : 'admin')}
-                  >
-                    {loginMode === 'admin' ? "Need an admin account? Sign Up" : "Back to login"}
-                  </button>
-                </div>
               </form>
             ) : (
               <form onSubmit={handleTempLogin} className="space-y-5">
