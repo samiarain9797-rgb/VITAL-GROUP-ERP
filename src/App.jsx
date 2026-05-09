@@ -8088,7 +8088,8 @@ const UsersView = ({ users, profile, shipments = [] }) => {
     try {
       const email = `${newTempData.username}@temp.app`;
       const { createClient } = await import('@supabase/supabase-js');
-      const tempSupabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { cleanSupabaseUrl } = await import('./supabase');
+      const tempSupabase = createClient(cleanSupabaseUrl, import.meta.env.VITE_SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
       
       const { data, error } = await tempSupabase.auth.signUp({
         email,
@@ -8841,7 +8842,11 @@ function MainApp() {
       }
     } catch (error) {
       console.error("Login failed:", error);
-      setLoginError("Google login failed. Please try again. (" + error.message + ")");
+      if (error.message && error.message.includes("Failed to fetch")) {
+        setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
+      } else {
+        setLoginError("Google login failed. Please try again. (" + error.message + ")");
+      }
     }
   };
 
@@ -8858,7 +8863,9 @@ function MainApp() {
       if (error) throw error;
     } catch (err) {
       console.error(err);
-      if (err.message?.includes("Invalid login")) {
+      if (err.message && err.message.includes("Failed to fetch")) {
+        setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
+      } else if (err.message?.includes("Invalid login")) {
         setLoginError("Invalid ID or Password. Please check your credentials.");
       } else {
         setLoginError("Login failed. Please try again.");
