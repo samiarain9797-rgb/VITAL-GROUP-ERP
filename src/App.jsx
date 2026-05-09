@@ -360,20 +360,18 @@ const AuthProvider = ({ children }) => {
             let oldDummyUid = null;
             let existingData = {};
 
-            if (u.providerData.some((p) => p.providerId === "google.com") || u.email === "samiarain9797@gmail.com") {
-              const usersRef = collection(db, "users");
-              const q = query(usersRef, where("email", "==", u.email));
-              const querySnapshot = await getDocs(q);
+            const usersRef = collection(db, "users");
+            const q = query(usersRef, where("email", "==", u.email));
+            const querySnapshot = await getDocs(q);
 
-              if (!querySnapshot.empty) {
-                const docSnap = querySnapshot.docs[0];
-                existingData = docSnap.data();
-                oldDummyUid = docSnap.id;
-                isPreRegistered = true;
-              } else if (u.email === "samiarain9797@gmail.com") {
-                // Always let the main admin sign in
-                isPreRegistered = true;
-              }
+            if (!querySnapshot.empty) {
+              const docSnap = querySnapshot.docs[0];
+              existingData = docSnap.data();
+              oldDummyUid = docSnap.id;
+              isPreRegistered = true;
+            } else if (u.email === "samiarain9797@gmail.com" || u.email === "samiarain@vitaltea.com") {
+              // Always let the main admins sign in
+              isPreRegistered = true;
             }
 
             if (isPreRegistered) {
@@ -382,7 +380,7 @@ const AuthProvider = ({ children }) => {
                 email: u.email || "",
                 displayName: existingData.displayName || u.displayName || u.email?.split("@")[0] || "",
                 photoURL: u.photoURL || "",
-                role: existingData.role || (u.email === "samiarain9797@gmail.com" ? "admin" : "transporter"),
+                role: existingData.role || (u.email === "samiarain9797@gmail.com" || u.email === "samiarain@vitaltea.com" ? "admin" : "transporter"),
                 warehouseLocation: existingData.warehouseLocation || null,
                 assignedLocation: existingData.assignedLocation || null,
                 createdAt: existingData.createdAt || Timestamp.now(),
