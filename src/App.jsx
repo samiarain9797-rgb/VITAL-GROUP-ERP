@@ -8568,7 +8568,9 @@ function MainApp() {
     await Promise.all(promises);
   };
   // Login State
-  const [loginMode, setLoginMode] = useState("google");
+  const [loginMode, setLoginMode] = useState("admin");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [tempId, setTempId] = useState("");
   const [tempPassword, setTempPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -8826,26 +8828,36 @@ function MainApp() {
     }
   };
 
-  const handleLogin = async () => {
+  const handleLogin = async (e) => {
+    e.preventDefault();
     setLoginError("");
+    if (!adminEmail || !adminPassword) return;
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({ 
-        provider: 'google',
-        options: {
-          skipBrowserRedirect: true,
-          redirectTo: `${window.location.origin}/`
+      if (loginMode === 'admin-signup') {
+        const { data, error } = await supabase.auth.signUp({ 
+          email: adminEmail,
+          password: adminPassword,
+        });
+        if (error) throw error;
+        if (data?.user?.identities?.length === 0) {
+          throw new Error("This email is already registered.");
         }
-      });
-      if (error) throw error;
-      if (data?.url) {
-        window.open(data.url, 'oauth_popup', 'width=600,height=700');
+        // Success message or handle auto-login
+        alert("Account created successfully! You can now log in.");
+        setLoginMode('admin');
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ 
+          email: adminEmail,
+          password: adminPassword,
+        });
+        if (error) throw error;
       }
     } catch (error) {
       console.error("Login failed:", error);
       if (error.message && error.message.includes("Failed to fetch")) {
         setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
       } else {
-        setLoginError("Google login failed. Please try again. (" + error.message + ")");
+        setLoginError((loginMode === 'admin-signup' ? "Sign up failed: " : "Login failed: ") + error.message);
       }
     }
   };
@@ -8926,29 +8938,33 @@ function MainApp() {
               Sign in to manage Vital Group logistics operations.
             </p>
 
-            <div className="flex bg-zinc-100 p-1 rounded-lg mb-8">
-              <button
-                onClick={() => setLoginMode("google")}
-                className={cn(
-                  "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all",
-                  loginMode === "google"
-                    ? "bg-white text-zinc-900 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-700",
-                )}
-              >
-                Google Account
-              </button>
-              <button
-                onClick={() => setLoginMode("temp")}
-                className={cn(
-                  "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all",
-                  loginMode === "temp"
-                    ? "bg-white text-zinc-900 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-700",
-                )}
-              >
-                Temporary ID
-              </button>
+            <div className="flex flex-col bg-zinc-100 p-1 rounded-lg mb-8">
+              <div className="flex">
+                <button
+                  onClick={() => setLoginMode("admin")}
+                  type="button"
+                  className={cn(
+                    "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all",
+                    loginMode === "admin"
+                      ? "bg-white text-zinc-900 shadow-sm"
+                      : "text-zinc-500 hover:text-zinc-700",
+                  )}
+                >
+                  Admin Login
+                </button>
+                <button
+                  onClick={() => setLoginMode("temp")}
+                  type="button"
+                  className={cn(
+                    "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all",
+                    loginMode === "temp"
+                      ? "bg-white text-zinc-900 shadow-sm"
+                      : "text-zinc-500 hover:text-zinc-700",
+                  )}
+                >
+                  Temporary ID
+                </button>
+              </div>
             </div>
 
             {loginError && (
@@ -8957,14 +8973,51 @@ function MainApp() {
               </div>
             )}
 
-            {loginMode === "google" ? (
-              <button
-                onClick={handleLogin}
-                className="w-full flex items-center justify-center gap-3 bg-zinc-900 text-white py-3.5 rounded-xl font-medium hover:bg-zinc-800 transition-all active:scale-[0.98] shadow-lg shadow-zinc-900/10"
-              >
-                <LogIn size={20} />
-                Sign in with Google
-              </button>
+            {loginMode === "admin" || loginMode === "admin-signup" ? (
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase tracking-widest text-zinc-500 font-mono ml-1 font-semibold">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="admin@vitalgroup.com"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl py-3.5 px-4 text-sm text-zinc-900 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-all"
+                    value={adminEmail}
+                    onChange={(e) => setAdminEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs uppercase tracking-widest text-zinc-500 font-mono ml-1 font-semibold">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl py-3.5 px-4 text-sm text-zinc-900 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-all"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full flex items-center justify-center gap-3 bg-zinc-900 text-white py-3.5 rounded-xl font-medium hover:bg-zinc-800 transition-all active:scale-[0.98] shadow-lg shadow-zinc-900/10 mt-2"
+                >
+                  <LogIn size={20} />
+                  {loginMode === 'admin-signup' ? 'Create Admin Account' : 'Sign in securely'}
+                </button>
+                <div className="text-center mt-4">
+                  <button 
+                    type="button" 
+                    className="text-xs text-zinc-500 hover:text-zinc-800"
+                    onClick={() => setLoginMode(loginMode === 'admin' ? 'admin-signup' : 'admin')}
+                  >
+                    {loginMode === 'admin' ? "Need an admin account? Sign Up" : "Back to login"}
+                  </button>
+                </div>
+              </form>
             ) : (
               <form onSubmit={handleTempLogin} className="space-y-5">
                 <div className="space-y-1.5">
