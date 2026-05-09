@@ -8088,8 +8088,8 @@ const UsersView = ({ users, profile, shipments = [] }) => {
     try {
       const email = `${newTempData.username}@temp.app`;
       const { createClient } = await import('@supabase/supabase-js');
-      const { cleanSupabaseUrl } = await import('./supabase');
-      const tempSupabase = createClient(cleanSupabaseUrl, import.meta.env.VITE_SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { cleanSupabaseUrl, supabaseAnonKey } = await import('./supabase');
+      const tempSupabase = createClient(cleanSupabaseUrl, supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false } });
       
       const { data, error } = await tempSupabase.auth.signUp({
         email,
