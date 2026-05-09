@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS public.users (
   permissions JSONB,
   photo_url TEXT,
   is_temporary BOOLEAN DEFAULT false,
+  assigned_location TEXT,
+  warehouse_location TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -265,3 +267,10 @@ CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING (bucket_id = '
 CREATE POLICY "Upload Access" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'uploads');
 CREATE POLICY "Update Access" ON storage.objects FOR UPDATE USING (bucket_id = 'uploads');
 CREATE POLICY "Delete Access" ON storage.objects FOR DELETE USING (bucket_id = 'uploads');
+
+-- Fallback updates for existing schemas
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS assigned_location TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS warehouse_location TEXT;
+
+-- Reload the PostgREST schema cache to ensure new columns are immediately available
+NOTIFY pgrst, 'reload schema';

@@ -433,8 +433,8 @@ const AuthProvider = ({ children }) => {
       } catch (error) {
         console.error("Error in onAuthStateChange:", error);
         
-        if (error.code === '42P01') {
-           alert(`Database Tables Missing: Please open the 'supabase_schema.sql' file, copy its contents, and run it in your Supabase project's SQL Editor to create the necessary tables.`);
+        if (error.code === '42P01' || error.code === 'PGRST204') {
+           alert(`Database Schema Update Required:\n\nPlease open the 'supabase_schema.sql' file, copy its contents, and run it in your Supabase project's SQL Editor.\n\nThis will add missing columns and refresh the schema cache. (If you've already done this, try refreshing the page).`);
         }
 
         setProfile(null);
@@ -8567,8 +8567,8 @@ function MainApp() {
   };
   // Login State
   const [loginMode, setLoginMode] = useState("admin");
-  const [adminEmail, setAdminEmail] = useState("");
-  const [adminPassword, setAdminPassword] = useState("");
+  const [adminEmail, setAdminEmail] = useState("samiarain@vitaltea.com");
+  const [adminPassword, setAdminPassword] = useState("12345678");
   const [tempId, setTempId] = useState("");
   const [tempPassword, setTempPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -8840,7 +8840,11 @@ function MainApp() {
       alert("Password reset instructions have been sent to your email.");
     } catch (error) {
       console.error("Reset password failed:", error);
-      setLoginError("Reset password failed: " + error.message);
+      if (error.message.includes("rate limit")) {
+        setLoginError("Reset password failed: You've requested too many emails recently. Please check your inbox/spam folder or wait an hour before trying again.");
+      } else {
+        setLoginError("Reset password failed: " + error.message);
+      }
     }
   };
 
@@ -8849,17 +8853,37 @@ function MainApp() {
     setLoginError("");
     if (!adminEmail || !adminPassword) return;
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ 
-        email: adminEmail,
-        password: adminPassword,
-      });
-      if (error) throw error;
+      if (loginMode === 'admin-signup') {
+        const { data, error } = await supabase.auth.signUp({ 
+          email: adminEmail,
+          password: adminPassword,
+        });
+        if (error) throw error;
+        if (data?.user?.identities?.length === 0) {
+          throw new Error("This email is already registered. If you used Google to sign in before, please click 'Forgot Password' to set an email password.");
+        }
+        // Success message or handle auto-login
+        alert("Account created successfully! You can now log in.");
+        setLoginMode('admin');
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ 
+          email: adminEmail,
+          password: adminPassword,
+        });
+        if (error) throw error;
+      }
     } catch (error) {
       console.error("Login failed:", error);
       if (error.message && error.message.includes("Failed to fetch")) {
         setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
       } else {
-        setLoginError("Login failed. " + error.message);
+        if (error.message === "Invalid login credentials") {
+          setLoginError("Login failed: Invalid email or password. If you just signed up, make sure you confirmed your email via the link sent to you.");
+        } else if (error.message.includes("Email not confirmed")) {
+          setLoginError("Login failed: Please check your email to confirm your account before logging in.");
+        } else {
+          setLoginError((loginMode === 'admin-signup' ? "Sign up failed: " : "Login failed: ") + error.message);
+        }
       }
     }
   };
@@ -8975,7 +8999,7 @@ function MainApp() {
               </div>
             )}
 
-            {loginMode === "admin" ? (
+            {loginMode === "admin" || loginMode === "admin-signup" ? (
               <form onSubmit={handleLogin} className="space-y-5">
                 <div className="space-y-1.5">
                   <label className="text-xs uppercase tracking-widest text-zinc-500 font-mono ml-1 font-semibold">
@@ -8995,13 +9019,15 @@ function MainApp() {
                     <label className="text-xs uppercase tracking-widest text-zinc-500 font-mono font-semibold">
                       Password
                     </label>
-                    <button
-                      type="button"
-                      onClick={handleResetPassword}
-                      className="text-xs text-zinc-500 hover:text-zinc-800"
-                    >
-                      Forgot Password?
-                    </button>
+                    {loginMode === 'admin' && (
+                      <button
+                        type="button"
+                        onClick={handleResetPassword}
+                        className="text-xs text-zinc-500 hover:text-zinc-800"
+                      >
+                        Forgot Password?
+                      </button>
+                    )}
                   </div>
                   <input
                     type="password"
@@ -9017,8 +9043,17 @@ function MainApp() {
                   className="w-full flex items-center justify-center gap-3 bg-zinc-900 text-white py-3.5 rounded-xl font-medium hover:bg-zinc-800 transition-all active:scale-[0.98] shadow-lg shadow-zinc-900/10 mt-2"
                 >
                   <LogIn size={20} />
-                  Sign in securely
+                  {loginMode === 'admin-signup' ? 'Create Admin Account' : 'Sign in securely'}
                 </button>
+                <div className="text-center mt-4">
+                  <button 
+                    type="button" 
+                    className="text-xs text-zinc-500 hover:text-zinc-800"
+                    onClick={() => setLoginMode(loginMode === 'admin' ? 'admin-signup' : 'admin')}
+                  >
+                    {loginMode === 'admin' ? "Need an admin account? Sign Up" : "Back to login"}
+                  </button>
+                </div>
               </form>
             ) : (
               <form onSubmit={handleTempLogin} className="space-y-5">

@@ -78,20 +78,52 @@ export function limit(number) {
   return { type: 'limit', value: number };
 }
 
+function toSnakeCase(str) {
+  if (str === 'photoURL') return 'photo_url';
+  return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+}
+
+function toCamelCase(str) {
+  if (str === 'photo_url') return 'photoURL';
+  return str.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
+}
+
+function keysToCamel(obj) {
+  if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
+  if (Array.isArray(obj)) return obj.map(keysToCamel);
+  const result = {};
+  for (const [k, v] of Object.entries(obj)) {
+    result[toCamelCase(k)] = keysToCamel(v);
+  }
+  return result;
+}
+
+function keysToSnake(obj) {
+  if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
+  if (Array.isArray(obj)) return obj.map(keysToSnake);
+  const result = {};
+  for (const [k, v] of Object.entries(obj)) {
+    result[toSnakeCase(k)] = keysToSnake(v);
+  }
+  return result;
+}
+
 function applyConstraints(sbQuery, constraints) {
   if (!constraints) return sbQuery;
   let q = sbQuery;
   for (const c of constraints) {
     if (c.type === 'where') {
-      if (c.op === '==') q = q.eq(c.field, c.value);
-      else if (c.op === '<') q = q.lt(c.field, c.value);
-      else if (c.op === '<=') q = q.lte(c.field, c.value);
-      else if (c.op === '>') q = q.gt(c.field, c.value);
-      else if (c.op === '>=') q = q.gte(c.field, c.value);
-      else if (c.op === 'array-contains') q = q.contains(c.field, [c.value]);
-      else if (c.op === 'in') q = q.in(c.field, c.value);
+      const field = toSnakeCase(c.field);
+      if (c.op === '==') q = q.eq(field, c.value);
+      else if (c.op === '<') q = q.lt(field, c.value);
+      else if (c.op === '<=') q = q.lte(field, c.value);
+      else if (c.op === '>') q = q.gt(field, c.value);
+      else if (c.op === '>=') q = q.gte(field, c.value);
+      else if (c.op === 'array-contains') q = q.contains(field, [c.value]);
+      else if (c.op === 'in') q = q.in(field, c.value);
     } else if (c.type === 'orderBy') {
-      q = q.order(c.field, { ascending: c.direction !== 'desc' });
+      const field = toSnakeCase(c.field);
+      q = q.order(field, { ascending: c.direction !== 'desc' });
     } else if (c.type === 'limit') {
       q = q.limit(c.value);
     }
@@ -110,12 +142,12 @@ function cleanDataFromDb(data) {
     } else if (v && typeof v === 'object' && !Array.isArray(v)) {
       result[k] = cleanDataFromDb(v); // handle nested
     } else if (Array.isArray(v)) {
-      result[k] = v.map(item => typeof item === 'object' ? cleanDataFromDb(item) : item);
+      result[k] = v.map(item => (typeof item === 'object' && item !== null) ? cleanDataFromDb(item) : item);
     } else {
       result[k] = v;
     }
   }
-  return result;
+  return keysToCamel(result);
 }
 
 function prepareTableAndParent(path) {
@@ -182,12 +214,12 @@ function cleanPayload(data) {
     } else if (v && typeof v === 'object' && !(v instanceof Date) && !Array.isArray(v)) {
       result[k] = cleanPayload(v); // handle nested
     } else if (Array.isArray(v)) {
-      result[k] = v.map(item => typeof item === 'object' ? cleanPayload(item) : item);
+      result[k] = v.map(item => (typeof item === 'object' && item !== null) ? cleanPayload(item) : item);
     } else {
       result[k] = v;
     }
   }
-  return result;
+  return keysToSnake(result);
 }
 
 export async function setDoc(docRef, data, options) {
