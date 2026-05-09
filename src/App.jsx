@@ -308,6 +308,19 @@ const AuthProvider = ({ children }) => {
     };
     window.addEventListener('message', handleMessage);
 
+    // Initial session check
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error("Error getting initial session:", error);
+        setLoading(false);
+      } else if (!session) {
+        setLoading(false);
+      }
+    }).catch((err) => {
+      console.error("Exception in getSession:", err);
+      setLoading(false);
+    });
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       // If we're inside a popup window, pass the session to the parent and close
       if (session && window.opener) {
@@ -318,6 +331,7 @@ const AuthProvider = ({ children }) => {
             refresh_token: session.refresh_token 
           } 
         }, '*');
+        setLoading(false);
         window.close();
         return;
       }
