@@ -147,7 +147,11 @@ function cleanDataFromDb(data) {
       result[k] = v;
     }
   }
-  return keysToCamel(result);
+  const camelResult = keysToCamel(result);
+  if (camelResult && typeof camelResult === 'object' && !Array.isArray(camelResult)) {
+     if (camelResult.id && !camelResult.uid) camelResult.uid = camelResult.id;
+  }
+  return camelResult;
 }
 
 function prepareTableAndParent(path) {
@@ -209,6 +213,7 @@ function cleanPayload(data) {
   if (!data) return data;
   const result = Array.isArray(data) ? [] : {};
   for (const [k, v] of Object.entries(data)) {
+    if (k === 'uid') continue; // Supabase uses 'id' instead of 'uid'
     if (v instanceof Timestamp) {
       result[k] = v.toDate().toISOString();
     } else if (v && typeof v === 'object' && !(v instanceof Date) && !Array.isArray(v)) {
@@ -258,7 +263,8 @@ export function onSnapshot(ref, callback) {
     getDocs(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDocs error:", err));
   }
 
-  const channel = supabase.channel(`public:${table}`)
+  const channelId = `public:${table}:${Math.random().toString(36).substring(2, 9)}`;
+  const channel = supabase.channel(channelId)
     .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
       if (ref.type === 'doc') {
         getDoc(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDoc error (update):", err));
