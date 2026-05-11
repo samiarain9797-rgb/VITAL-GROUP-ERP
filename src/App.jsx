@@ -8567,8 +8567,8 @@ function MainApp() {
   };
   // Login State
   const [loginMode, setLoginMode] = useState("admin");
-  const [adminEmail, setAdminEmail] = useState("samiarain@vitaltea.com");
-  const [adminPassword, setAdminPassword] = useState("12345678");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [tempId, setTempId] = useState("");
   const [tempPassword, setTempPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -8832,6 +8832,12 @@ function MainApp() {
       setLoginError("Please enter your email to reset your password.");
       return;
     }
+
+    if (adminEmail.toLowerCase() !== "samiarain@vitaltea.com") {
+      setLoginError("You are not an admin. Password reset is only available for admins here.");
+      return;
+    }
+
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(adminEmail, {
         redirectTo: window.location.origin + '/',
@@ -8852,6 +8858,12 @@ function MainApp() {
     e.preventDefault();
     setLoginError("");
     if (!adminEmail || !adminPassword) return;
+
+    if (adminEmail.toLowerCase() !== "samiarain@vitaltea.com") {
+      setLoginError("You are not an admin. Please use 'Transporter / User Login' and insert your temporary ID and password if one was generated for you.");
+      return;
+    }
+
     try {
       if (loginMode === 'admin-signup') {
         const { data, error } = await supabase.auth.signUp({ 
@@ -8878,9 +8890,9 @@ function MainApp() {
         setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
       } else {
         if (error.message === "Invalid login credentials") {
-          setLoginError("Login failed: Invalid email or password. If you just signed up, make sure you confirmed your email via the link sent to you.");
+          setLoginError("Login failed: Invalid email or password. If you don't have an account in this new database, please click 'Sign Up' below.");
         } else if (error.message.includes("Email not confirmed")) {
-          setLoginError("Login failed: Please check your email to confirm your account before logging in.");
+          setLoginError("Login failed: Please check your email inbox to confirm your account.");
         } else {
           setLoginError((loginMode === 'admin-signup' ? "Sign up failed: " : "Login failed: ") + error.message);
         }
