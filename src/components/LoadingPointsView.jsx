@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "../supabase-firestore-shim";
-import { db } from "../supabase-firestore-shim";
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "../bknd-firestore-shim";
+import { db } from "../bknd-firestore-shim";
 import { Plus, Edit2, Trash2, X, Save, FileText } from "lucide-react";
 
 export default function LoadingPointsView({ loadingPoints, companies, profile }) {

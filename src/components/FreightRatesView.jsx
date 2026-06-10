@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Save, Fuel, MapPin, Truck, FileSpreadsheet, X, Wand2, Edit2 } from 'lucide-react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, serverTimestamp, query, orderBy } from "../supabase-firestore-shim";
-import { db } from "../supabase-firestore-shim";
+import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, serverTimestamp, query, orderBy } from "../bknd-firestore-shim";
+import { db } from "../bknd-firestore-shim";
 import { cn } from '../lib/utils';
 import SearchableSelect from './SearchableSelect';
 

@@ -71,7 +71,7 @@ import {
   Cell,
 } from "recharts";
 
-import { supabase } from "./supabase";
+import { supabase, api } from "./bknd";
 import {
   db,
   storage,
@@ -96,12 +96,14 @@ import {
   getDocFromServer,
   arrayUnion,
   deleteField,
-} from "./supabase-firestore-shim";
+} from "./bknd-firestore-shim";
 import AIAssistant from './components/AIAssistant';
 import ComplaintsView from './components/ComplaintsView';
 import TrackerIntegrationsView from './components/TrackerIntegrationsView';
 import CostingView from './components/CostingView';
 import FreightRatesView from './components/FreightRatesView';
+import AutoFreightSimulator from './components/AutoFreightSimulator';
+import InvoiceGeneratorDemo from './components/InvoiceGeneratorDemo';
 import SearchableSelect from './components/SearchableSelect';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import DocumentGallery from './components/DocumentGallery';
@@ -434,7 +436,7 @@ const AuthProvider = ({ children }) => {
         console.error("Error in onAuthStateChange:", error);
         
         if (error.code === '42P01') {
-           alert(`Database Tables Missing: Please open the 'supabase_schema.sql' file, copy its contents, and run it in your Supabase project's SQL Editor to create the necessary tables.`);
+           alert(`Database Tables Missing: Please open the 'bknd_schema.sql' file, copy its contents, and run it in your backend's SQL Editor to create the necessary tables.`);
         }
 
         setProfile(null);
@@ -4849,7 +4851,7 @@ const AudioRecorder = ({ onRecordingComplete }) => {
         } catch (error) {
           console.error("Audio upload failed:", error);
           if (error.message && error.message.includes('bucket not found')) {
-            alert("Storage Access Denied: \n\nPlease create a storage bucket named 'uploads' in your Supabase Console, and make it public.");
+            alert("Storage Access Denied: \n\nPlease create a storage bucket named 'uploads' in your Backend Console, and make it public.");
           } else {
             alert("Failed to upload audio message. " + (error?.message || ""));
           }
@@ -4965,11 +4967,11 @@ const FileUploader = ({
               {modalState.message}
               {modalState.isStorageError && (
                 <div className="mt-4 bg-orange-50 text-orange-800 p-3 rounded border border-orange-200 h-64 overflow-y-auto">
-                  <p className="font-bold mb-1 border-b border-orange-200 pb-1">Troubleshooting Supabase Storage:</p>
+                  <p className="font-bold mb-1 border-b border-orange-200 pb-1">Troubleshooting Backend Storage:</p>
                   
                   <p className="font-bold text-xs mt-2">1. Create 'uploads' Bucket</p>
                   <ol className="list-decimal pl-4 space-y-1 mt-1 text-xs">
-                    <li>Go to your Supabase project dashboard</li>
+                    <li>Go to your backend dashboard</li>
                     <li>Click <strong>Storage</strong> in the left sidebar</li>
                     <li>Click <strong>New Bucket</strong></li>
                     <li>Name it exactly <strong>uploads</strong></li>
@@ -4979,8 +4981,8 @@ const FileUploader = ({
                   <p className="font-bold text-xs mt-4">2. Add Storage Policies</p>
                   <p className="text-xs mt-1">If the bucket exists but you get permission errors, you need to allow uploads in the SQL Editor.</p>
                   <ol className="list-decimal pl-4 space-y-1 mt-1 text-xs">
-                    <li>Go to the <strong>SQL Editor</strong> in Supabase</li>
-                    <li>Run the policies from the provided <code>supabase_schema.sql</code> file, or run:</li>
+                    <li>Go to the <strong>SQL Editor</strong> in your backend</li>
+                    <li>Run the policies from the provided <code>bknd_schema.sql</code> file, or run:</li>
                   </ol>
                   <pre className="bg-white p-2 mt-2 rounded border border-orange-100 text-[10px] sm:text-[11px] overflow-x-auto whitespace-pre-wrap select-all">
 {`CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING (bucket_id = 'uploads');
@@ -8085,11 +8087,8 @@ const UsersView = ({ users, profile, shipments = [] }) => {
     setError("");
     try {
       const email = `${newTempData.username}@temp.app`;
-      const { createClient } = await import('@supabase/supabase-js');
-      const { cleanSupabaseUrl, supabaseAnonKey } = await import('./supabase');
-      const tempSupabase = createClient(cleanSupabaseUrl, supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-      
-      const { data, error } = await tempSupabase.auth.signUp({
+      const { supabase } = await import('./bknd');
+      const { data, error } = await supabase.auth.signUp({
         email,
         password: newTempData.password,
       });
@@ -8503,7 +8502,7 @@ const UsersView = ({ users, profile, shipments = [] }) => {
 // --- Main App Content ---
 function MainApp() {
   const { user, profile, loading } = useContext(AuthContext);
-  const [activeTab, setActiveTab] = useState("Dashboard");
+  const [activeTab, setActiveTab] = useState("InvoiceGenerator");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [shipments, setShipments] = useState([]);
   const [vessels, setVessels] = useState([]);
@@ -8567,11 +8566,31 @@ function MainApp() {
   };
   // Login State
   const [loginMode, setLoginMode] = useState("admin");
+  const [hasAdmin, setHasAdmin] = useState(true);
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [tempId, setTempId] = useState("");
   const [tempPassword, setTempPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+
+  useEffect(() => {
+    // Check if an admin has already been registered
+    const checkAdmin = async () => {
+      try {
+        const res = await api.data.readMany('users', { limit: 1 });
+        if (res.data && res.data.length === 0) {
+          setHasAdmin(false);
+        } else {
+          setHasAdmin(true);
+        }
+      } catch (e) {
+        console.error("Failed to check if admin exists:", e);
+        // If it throws, maybe the table doesn't exist, we can default to showing register
+        setHasAdmin(false); 
+      }
+    };
+    checkAdmin();
+  }, []);
 
   useEffect(() => {
     const handleLoginErrorEvent = (e) => setLoginError(e.detail);
@@ -8844,6 +8863,40 @@ function MainApp() {
     }
   };
 
+  const handleAdminRegister = async (e) => {
+    e.preventDefault();
+    setLoginError("");
+    if (!adminEmail || !adminPassword) return;
+    try {
+      const { data, error } = await supabase.auth.signUp({ 
+        email: adminEmail,
+        password: adminPassword,
+      });
+      if (error) throw error;
+      
+      if (data && data.user) {
+        // Create the profile in the users collection
+        try {
+          await api.data.createOne('users', {
+            id: data.user.id,
+            email: adminEmail,
+            role: 'admin'
+          });
+        } catch (e) {
+          console.warn("Could not create user profile, it might already exist or table is missing:", e);
+        }
+        setHasAdmin(true);
+      }
+    } catch (error) {
+      console.error("Registration failed:", error);
+      if (error.message && error.message.includes("Failed to fetch")) {
+        setLoginError("Failed to connect. Ensure your backend is running.");
+      } else {
+        setLoginError("Registration failed. " + error.message);
+      }
+    }
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
@@ -8857,7 +8910,7 @@ function MainApp() {
     } catch (error) {
       console.error("Login failed:", error);
       if (error.message && error.message.includes("Failed to fetch")) {
-        setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
+        setLoginError("Failed to connect. Ensure your VITE_BKND_URL Environment Variable is correctly set.");
       } else {
         setLoginError("Login failed. " + error.message);
       }
@@ -8878,7 +8931,7 @@ function MainApp() {
     } catch (err) {
       console.error(err);
       if (err.message && err.message.includes("Failed to fetch")) {
-        setLoginError("Failed to connect to Supabase. Ensure your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY Environment Variables are correctly set to your new project.");
+        setLoginError("Failed to connect. Ensure your VITE_BKND_URL Environment Variable is correctly set.");
       } else if (err.message?.includes("Invalid login")) {
         setLoginError("Invalid ID or Password. Please check your credentials.");
       } else {
@@ -9019,6 +9072,22 @@ function MainApp() {
                   <LogIn size={20} />
                   Sign in securely
                 </button>
+                {!hasAdmin && (
+                  <>
+                    <div className="flex items-center gap-2 mt-4 text-xs text-zinc-400 font-medium">
+                       <div className="flex-1 h-px bg-zinc-200"></div>
+                       OR
+                       <div className="flex-1 h-px bg-zinc-200"></div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAdminRegister}
+                      className="w-full flex items-center justify-center gap-3 bg-zinc-50 border border-zinc-200 text-zinc-900 py-3.5 rounded-xl font-medium hover:bg-zinc-100 transition-all active:scale-[0.98]"
+                    >
+                       Register First Admin
+                    </button>
+                  </>
+                )}
               </form>
             ) : (
               <form onSubmit={handleTempLogin} className="space-y-5">
@@ -9202,6 +9271,26 @@ function MainApp() {
               label="Freight Rates"
               active={activeTab === "FreightRates"}
               onClick={() => setActiveTab("FreightRates")}
+            />
+          )}
+
+          {(profile?.role === "admin" || profile?.role === "accountant" || profile?.role === "dispatcher") && (
+            <SidebarItem
+              isSidebarOpen={isSidebarOpen}
+              icon={TrendingUp}
+              label="Freight Simulator"
+              active={activeTab === "FreightSimulator"}
+              onClick={() => setActiveTab("FreightSimulator")}
+            />
+          )}
+
+          {(profile?.role === "admin" || profile?.role === "accountant" || profile?.role === "dispatcher") && (
+            <SidebarItem
+              isSidebarOpen={isSidebarOpen}
+              icon={FileText}
+              label="Invoice Generator"
+              active={activeTab === "InvoiceGenerator"}
+              onClick={() => setActiveTab("InvoiceGenerator")}
             />
           )}
 
@@ -9546,6 +9635,12 @@ function MainApp() {
               )}
               {activeTab === "FreightRates" && (
                 <FreightRatesView profile={profile} users={users} PAKISTAN_LOCATIONS={PAKISTAN_LOCATIONS} />
+              )}
+              {activeTab === "FreightSimulator" && (
+                <AutoFreightSimulator />
+              )}
+              {activeTab === "InvoiceGenerator" && (
+                <InvoiceGeneratorDemo />
               )}
               {activeTab === "Incidents" && (
                 <TheftAndInsuranceView shipments={shipments} profile={profile} users={users} />

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { doc, getDoc, updateDoc, db } from '../supabase-firestore-shim';
+import { doc, getDoc, updateDoc, db } from '../bknd-firestore-shim';
 
 export function useTrackerSync(shipments, profile) {
   const syncIntervalRef = useRef(null);

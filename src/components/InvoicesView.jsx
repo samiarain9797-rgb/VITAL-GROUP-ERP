@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Search, DollarSign, CheckCircle2, AlertCircle, Upload, Eye, FileText, Download, Trash2, X } from 'lucide-react';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "../supabase-firestore-shim";
-import { db, storage } from "../supabase-firestore-shim";
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from "../bknd-firestore-shim";
+import { db, storage } from "../bknd-firestore-shim";
 import { cn } from '../lib/utils';
-import { ref, uploadBytes, getDownloadURL } from "../supabase-firestore-shim";
+import { ref, uploadBytes, getDownloadURL } from "../bknd-firestore-shim";
 import { AnimatePresence, motion } from 'motion/react';
 
 const InvoicesView = ({ profile }) => {

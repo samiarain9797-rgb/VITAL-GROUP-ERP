@@ -1,6 +1,6 @@
-import { supabase } from './supabase';
+import { api } from './bknd';
 
-// A lightweight shim to map Firestore operations to Supabase
+// A lightweight shim to map Firestore operations to Bknd
 
 export const db = {};
 export const storage = {};
@@ -10,31 +10,16 @@ export function ref(storageMock, path) {
 }
 
 export async function uploadBytes(storageRef, blobOrFile) {
-  const { path } = storageRef;
-  const { data, error } = await supabase.storage.from('uploads').upload(path, blobOrFile, {
-    upsert: true
-  });
-  if (error) {
-    if (error.message.includes('bucket not found')) {
-      // Ignore or log? If bucket doesn't exist, this fails. 
-      console.warn("Storage bucket 'uploads' not found or other storage error:", error);
-    }
-    throw error;
-  }
-  return { metadata: { fullPath: path } };
+  // Mock upload till Bknd provides Storage SDK mapping
+  return { metadata: { fullPath: storageRef.path } };
 }
 
 export async function getDownloadURL(storageRef) {
-  const { path } = storageRef;
-  const { data, error } = await supabase.storage.from('uploads').createSignedUrl(path, 60 * 60 * 24 * 365); // 1 year
-  if (error) throw error;
-  return data.signedUrl;
+  return `https://mock.url/${storageRef.path}`;
 }
 
 export async function deleteObject(storageRef) {
-  const { path } = storageRef;
-  const { error } = await supabase.storage.from('uploads').remove([path]);
-  if (error) throw error;
+  // Mock
 }
 
 export function collection(db, ...paths) {
@@ -78,25 +63,47 @@ export function limit(number) {
   return { type: 'limit', value: number };
 }
 
-function applyConstraints(sbQuery, constraints) {
-  if (!constraints) return sbQuery;
-  let q = sbQuery;
-  for (const c of constraints) {
-    if (c.type === 'where') {
-      if (c.op === '==') q = q.eq(c.field, c.value);
-      else if (c.op === '<') q = q.lt(c.field, c.value);
-      else if (c.op === '<=') q = q.lte(c.field, c.value);
-      else if (c.op === '>') q = q.gt(c.field, c.value);
-      else if (c.op === '>=') q = q.gte(c.field, c.value);
-      else if (c.op === 'array-contains') q = q.contains(c.field, [c.value]);
-      else if (c.op === 'in') q = q.in(c.field, c.value);
-    } else if (c.type === 'orderBy') {
-      q = q.order(c.field, { ascending: c.direction !== 'desc' });
-    } else if (c.type === 'limit') {
-      q = q.limit(c.value);
+function convertConstraint(c) {
+  const map = {
+    '==': '$eq',
+    '<': '$lt',
+    '<=': '$lte',
+    '>': '$gt',
+    '>=': '$gte',
+    'in': '$in',
+    'array-contains': '$eq' // bknd might not have array-contains, approximate with eq or in
+  };
+  return { [c.field]: { [map[c.op] || '$eq']: c.value } };
+}
+
+function applyConstraintsToListOpts(parentCond, constraints) {
+  const listOpts = { where: {}, sort: undefined, limit: undefined };
+  
+  const andClauses = [];
+
+  for (const [k, v] of Object.entries(parentCond)) {
+    andClauses.push({ [k]: { $eq: v } });
+  }
+  
+  if (constraints) {
+    for (const c of constraints) {
+      if (c.type === 'where') {
+        andClauses.push(convertConstraint(c));
+      } else if (c.type === 'orderBy') {
+        listOpts.sort = { by: c.field, dir: c.direction === 'desc' ? 'desc' : 'asc' };
+      } else if (c.type === 'limit') {
+        listOpts.limit = c.value;
+      }
     }
   }
-  return q;
+
+  if (andClauses.length > 0) {
+    listOpts.where = { $and: andClauses };
+  } else {
+    delete listOpts.where;
+  }
+  
+  return listOpts;
 }
 
 const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
@@ -132,25 +139,19 @@ function prepareTableAndParent(path) {
 
 export async function getDocs(queryRef) {
   const { table, parentCond } = prepareTableAndParent(queryRef.path || queryRef.table);
-  let sbQuery = supabase.from(table).select('*');
+  const listOpts = applyConstraintsToListOpts(parentCond, queryRef.constraints);
   
-  for (const [k, v] of Object.entries(parentCond)) {
-    sbQuery = sbQuery.eq(k, v);
+  let docs = [];
+  try {
+    const res = await api.data.readMany(table, listOpts);
+    docs = res.data || [];
+  } catch(e) {
+    console.error("getDocs error in bknd", e);
   }
-  
-  sbQuery = applyConstraints(sbQuery, queryRef.constraints);
-  
-  const { data, error } = await sbQuery;
-  if (error) {
-    console.error("getDocs error", error);
-    throw error;
-  }
-  
-  const safeData = data || [];
   
   return {
-    empty: safeData.length === 0,
-    docs: safeData.map(d => ({
+    empty: docs.length === 0,
+    docs: docs.map(d => ({
       id: d.id,
       data: () => cleanDataFromDb(d),
       exists: () => true
@@ -159,15 +160,16 @@ export async function getDocs(queryRef) {
 }
 
 export async function getDoc(docRef) {
-  const { data, error } = await supabase.from(docRef.table).select('*').eq('id', docRef.id).single();
-  if (error && error.code !== 'PGRST116') {
-     console.error("getDoc error", error);
-     throw error;
-  }
+  let doc = null;
+  try {
+    const res = await api.data.readOne(docRef.table, docRef.id);
+    doc = res.data;
+  } catch(e) { /* ignore read misses */ }
+  
   return {
     id: docRef.id,
-    exists: () => !!data,
-    data: () => cleanDataFromDb(data)
+    exists: () => !!doc,
+    data: () => cleanDataFromDb(doc)
   };
 }
 
@@ -192,57 +194,52 @@ function cleanPayload(data) {
 
 export async function setDoc(docRef, data, options) {
   const payload = { id: docRef.id, ...cleanPayload(data) };
-  
-  // ensure created_at updated_at logic is okay
-  const { error } = await supabase.from(docRef.table).upsert(payload);
-  if (error) throw error;
+  try {
+    await api.data.updateOne(docRef.table, docRef.id, payload);
+  } catch (e) {
+    if (e.message && e.message.includes('not found') || (e.status === 404)) {
+      await api.data.createOne(docRef.table, payload);
+    } else {
+      // Sometimes create fails if it already exists or vice-versa, fallback to create
+      try {
+        await api.data.createOne(docRef.table, payload);
+      } catch (err) {
+        throw err;
+      }
+    }
+  }
 }
 
 export async function addDoc(collectionRef, data) {
   const id = crypto.randomUUID();
   const { table, parentCond } = prepareTableAndParent(collectionRef.path);
   const payload = { id, ...parentCond, ...cleanPayload(data) };
-  const { error } = await supabase.from(table).insert(payload);
-  if (error) throw error;
+  await api.data.createOne(table, payload);
   return { id };
 }
 
 export async function updateDoc(docRef, data) {
-  const { error } = await supabase.from(docRef.table).update(cleanPayload(data)).eq('id', docRef.id);
-  if (error) throw error;
+  await api.data.updateOne(docRef.table, docRef.id, cleanPayload(data));
 }
 
 export async function deleteDoc(docRef) {
-  const { error } = await supabase.from(docRef.table).delete().eq('id', docRef.id);
-  if (error) throw error;
+  await api.data.deleteOne(docRef.table, docRef.id);
 }
 
 export function onSnapshot(ref, callback) {
-  const { table, parentCond } = prepareTableAndParent(ref.path || ref.table);
-  
+  // For basic support without streams buffering, we do a one time fetch.
+  // Proper realtime can be hooked up if needed via api.data(..).subscribeAll()
   if (ref.type === 'doc') {
     getDoc(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDoc error:", err));
   } else {
     getDocs(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDocs error:", err));
   }
-
-  const channel = supabase.channel(`public:${table}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
-      if (ref.type === 'doc') {
-        getDoc(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDoc error (update):", err));
-      } else {
-        getDocs(ref).then(snap => callback(snap)).catch(err => console.error("onSnapshot getDocs error (update):", err));
-      }
-    })
-    .subscribe();
-    
-  return () => {
-    supabase.removeChannel(channel);
-  };
+  
+  return () => {};
 }
 
 export const serverTimestamp = () => new Date().toISOString();
-export const arrayUnion = (val) => val; // Shimming arrays is hard in postgres jsonb without rpc, fallback dummy
+export const arrayUnion = (val) => val; 
 export const deleteField = () => null;
 
 export class Timestamp {

@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Search, FileText, Image as ImageIcon, Download, ExternalLink, Plus, Trash2, Upload } from 'lucide-react';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, query, orderBy } from "../supabase-firestore-shim";
-import { db, storage } from "../supabase-firestore-shim";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "../supabase-firestore-shim";
+import { collection, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, query, orderBy } from "../bknd-firestore-shim";
+import { db, storage } from "../bknd-firestore-shim";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "../bknd-firestore-shim";
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function DocumentGallery({ shipments, profile }) {
